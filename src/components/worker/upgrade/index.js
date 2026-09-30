@@ -11,7 +11,7 @@ import {
   Modal,
   RefreshControl,
 } from 'react-native';
-import { useBazaar } from '@cafebazaar/react-native-poolakey';
+import { useMyket } from 'iab-myket-reactnative';
 import axios from 'axios';
 import FastImage from 'react-native-fast-image';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -21,9 +21,10 @@ const { width } = Dimensions.get('window');
 const SingleUpgrade = ({ route, navigation }) => {
   const { worker_id } = route.params;
 
-  const RSA_KEY = 'MIHNMA0GCSqGSIb3DQEBAQUAA4G7ADCBtwKBrwDZ3o3F1FKWVDj2WhekiXeET7d+49xt8KL29L0pZekfp2Ef4ft+Dx86ho774+M+ivxgR5vNpxE6+xeTdS/lxk7g4MCK/zk+CVoiCi2CoTkhe5YJ2+XvAqR6R93PMBC/E5ejZ26pDYDXpf6U1UOZWiaThwsraCfq+uAGNviU6koQtMTVs75Xg86xRxJrFe+R+TutSAllITHY28SZgnR0c6WnlWOG1dtTUdDujLtubScCAwEAAQ==';
+  // Myket RSA public key (from Myket developer panel)
+  const RSA_KEY = 'MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCPDTWgtSt3k9QQWiC8BQ7UXR5rjhVxy/fq4qD9reJfYasj1WcRsovoBuOpFXgG1vYmegeb9ZcxERvK0jRDokmAJa+arv6yVBKaPYelBFdbhjjSQwf3/rt57myOnGnTx4KwepAekzb9c6Fqz6QBbC3t/OijGCC/ir20uCp01gtxJQIDAQAB';
 
-  const bazaar = useBazaar(RSA_KEY);
+  const myket = useMyket(RSA_KEY);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -95,7 +96,7 @@ const SingleUpgrade = ({ route, navigation }) => {
   };
 
   // ---------------------------------------------------------------
-  // Plans — SKUها دقیقاً مطابق پنل بازار
+  // Plans — SKUها دقیقاً مطابق پنل مایکت (و بازار — یکسان هستند)
   // ---------------------------------------------------------------
   const getUrgentPlans = () => {
     if (!prices?.urgent) return [];
@@ -110,7 +111,7 @@ const SingleUpgrade = ({ route, navigation }) => {
         desc: 'نمایش بالای آگهی‌های عادی',
         modalDesc: 'با انتخاب پلن فوری ۳ روزه، آگهی شما به مدت ۳ روز در بالای تمام آگهی‌های عادی نمایش داده می‌شود.',
         modalDesc2: 'متمایز شدن رنگ آگهی و ریبون فوری باعث می‌شود تا چند برابر آگهی عادی بازدید بگیرید.',
-        bazaarSku: '3_day_urgent',
+        sku: '3_day_urgent',
       },
       {
         id: 'urgent_7',
@@ -122,7 +123,7 @@ const SingleUpgrade = ({ route, navigation }) => {
         desc: 'افزایش بازدید برای ۷ روز',
         modalDesc: 'پلن فوری ۷ روزه به شما امکان می‌دهد آگهی‌تان را برای یک هفته متمایز در رنگ و با ریبون فوری نگه دارید.',
         modalDesc2: 'متمایز شدن رنگ آگهی و ریبون فوری باعث می‌شود تا چند برابر آگهی عادی بازدید بگیرید.',
-        bazaarSku: '7_day_urgent',
+        sku: '7_day_urgent',
       },
       {
         id: 'urgent_30',
@@ -134,7 +135,7 @@ const SingleUpgrade = ({ route, navigation }) => {
         desc: 'بیشترین نمایش برای ۳۰ روز',
         modalDesc: 'بهترین گزینه برای نمایش طولانی‌مدت. آگهی شما یک ماه کامل در بالای لیست فوری‌ها قرار می‌گیرد.',
         modalDesc2: 'متمایز شدن رنگ آگهی و ریبون فوری باعث می‌شود تا چند برابر آگهی عادی بازدید بگیرید.',
-        bazaarSku: '30_day_urgent',
+        sku: '30_day_urgent',
       },
     ];
     return plans.filter((p) => typeof p.price === 'number');
@@ -153,7 +154,7 @@ const SingleUpgrade = ({ route, navigation }) => {
         desc: 'نمایش در بالای لیست',
         modalDesc: 'آگهی ویژه ۳ روزه آگهی شما را با برچسب ویژه در بالاترین موقعیت لیست نمایش می‌دهد.',
         modalDesc2: 'در این پلن تعداد تماس‌های دریافتی تأثیری ندارد و فقط در صورت پایان مدت زمان خریداری‌شده آگهی به حالت عادی برمی‌گردد.',
-        bazaarSku: '3_day_special',
+        sku: '3_day_special',
       },
       {
         id: 'special_7',
@@ -165,7 +166,7 @@ const SingleUpgrade = ({ route, navigation }) => {
         desc: 'نمایش در بالای لیست',
         modalDesc: 'با پلن ویژه ۷ روزه، آگهی شما یک هفته در جایگاه ویژه قرار می‌گیرد.',
         modalDesc2: 'در این پلن تعداد تماس‌های دریافتی تأثیری ندارد و فقط در صورت پایان مدت زمان خریداری‌شده آگهی به حالت عادی برمی‌گردد.',
-        bazaarSku: '7_day_special',
+        sku: '7_day_special',
       },
       {
         id: 'special_30',
@@ -177,7 +178,7 @@ const SingleUpgrade = ({ route, navigation }) => {
         desc: 'نمایش در بالای لیست',
         modalDesc: 'پلن ویژه ۳۰ روزه کامل‌ترین گزینه برای نمایش ویژه است.',
         modalDesc2: 'در این پلن تعداد تماس‌های دریافتی تأثیری ندارد و فقط در صورت پایان مدت زمان خریداری‌شده آگهی به حالت عادی برمی‌گردد.',
-        bazaarSku: '30_day_special',
+        sku: '30_day_special',
       },
     ];
     return plans.filter((p) => typeof p.price === 'number');
@@ -196,7 +197,7 @@ const SingleUpgrade = ({ route, navigation }) => {
         desc: '۱۰ تماس بیشتر',
         modalDesc: 'با این بسته ۱۰ تماس اضافه به حساب شما افزوده می‌شود.',
         modalDesc2: 'در این پلن شما فقط زمانی هزینه پرداخت می‌کنید که مشتری با شماره تماس متصل به آگهی شما تماس برقرار کند.',
-        bazaarSku: '10_call_pack',
+        sku: '10_call_pack',
       },
       {
         id: 'calls_20',
@@ -208,7 +209,7 @@ const SingleUpgrade = ({ route, navigation }) => {
         desc: '۲۰ تماس بیشتر',
         modalDesc: 'بسته ۲۰ تماسی برای آگهی‌هایی که بازدید متوسطی دارند ایده‌آل است.',
         modalDesc2: 'در این پلن شما فقط زمانی هزینه پرداخت می‌کنید که مشتری با شماره تماس متصل به آگهی شما تماس برقرار کند.',
-        bazaarSku: '20_call_pack',
+        sku: '20_call_pack',
       },
       {
         id: 'calls_30',
@@ -220,7 +221,7 @@ const SingleUpgrade = ({ route, navigation }) => {
         desc: '۳۰ تماس بیشتر',
         modalDesc: 'بهترین ارزش برای پرتقاضاترین آگهی‌ها. ۳۰ تماس اضافه با کمترین هزینه.',
         modalDesc2: 'در این پلن شما فقط زمانی هزینه پرداخت می‌کنید که مشتری با شماره تماس متصل به آگهی شما تماس برقرار کند.',
-        bazaarSku: '30_call_pack',
+        sku: '30_call_pack',
       },
     ];
     return plans.filter((p) => typeof p.price === 'number');
@@ -241,45 +242,44 @@ const SingleUpgrade = ({ route, navigation }) => {
   };
 
   // ---------------------------------------------------------------
-  // Checkout
+  // Checkout — Myket
   // ---------------------------------------------------------------
   const handleCheckout = async () => {
     if (!selectedPlan || typeof selectedPlan.price !== 'number') {
       Alert.alert('خطا', 'لطفاً یک پلن معتبر انتخاب کنید.');
       return;
     }
-  
+
     if (purchasing) return;
     setPurchasing(true);
-  
+
     try {
-      const productSku = selectedPlan.bazaarSku;
-  
+      const productSku = selectedPlan.sku;
+
       // ---------------------------------------------------------------
-      // مرحله ۱: خرید از بازار
+      // مرحله ۱: خرید از مایکت
       // ---------------------------------------------------------------
       let purchaseResult;
       try {
-        const purchasePromise = bazaar.purchaseProduct(productSku);
+        const purchasePromise = myket.purchaseProduct(productSku);
         const timeoutPromise = new Promise((_, reject) =>
           setTimeout(() => reject(new Error('PURCHASE_TIMEOUT')), 60000)
         );
         purchaseResult = await Promise.race([purchasePromise, timeoutPromise]);
         console.log('✅ Purchase successful:', purchaseResult);
       } catch (purchaseError) {
-        // کاربر خرید را لغو کرده یا بازار خطا داده
         const rawMsg = (purchaseError?.message || '').toString();
         const lower = rawMsg.toLowerCase();
         console.log('❌ Purchase stage error:', rawMsg);
         console.log('❌ Full purchaseError:', purchaseError);
-  
+
         const isCancel =
           lower.includes('cancel') ||
           lower.includes('canceled') ||
           lower.includes('cancelled') ||
           lower.includes('user canceled') ||
           lower.includes('user cancelled');
-  
+
         if (isCancel) {
           Alert.alert(
             'لغو خرید',
@@ -296,20 +296,19 @@ const SingleUpgrade = ({ route, navigation }) => {
             'در صورت تکرار مشکل با پشتیبانی تماس بگیرید.'
           );
         }
-  
+
         setPurchasing(false);
         return;
       }
-  
+
       // ---------------------------------------------------------------
       // مرحله ۲: مصرف محصول (برای مصرف‌شدنی‌ها)
       // ---------------------------------------------------------------
       try {
-        await bazaar.consumePurchase(purchaseResult.purchaseToken);
+        await myket.consumePurchase(purchaseResult.purchaseToken);
         console.log('✅ Product consumed:', purchaseResult.purchaseToken);
       } catch (consumeError) {
         console.error('❌ Failed to consume product:', consumeError);
-        // ذخیره برای تلاش مجدد در لانچ بعدی
         try {
           await AsyncStorage.setItem(
             'pending_consume',
@@ -322,9 +321,8 @@ const SingleUpgrade = ({ route, navigation }) => {
         } catch (e) {
           console.error('Failed to store pending consume:', e);
         }
-        // مصرف شکست خورد اما خرید موفق بود، ادامه می‌دهیم
       }
-  
+
       // ---------------------------------------------------------------
       // مرحله ۳: ارسال به سرور
       // ---------------------------------------------------------------
@@ -343,11 +341,11 @@ const SingleUpgrade = ({ route, navigation }) => {
         product_id: purchaseResult.productId,
         package_name: purchaseResult.packageName || 'com.ajur.app',
       };
-  
+
       let res;
       try {
         res = await axios.post(
-          'https://api.ajur.app/api/bazar-post-upgrade',
+          'https://api.ajur.app/api/myket-post-upgrade',
           payload,
           {
             headers: {
@@ -360,8 +358,7 @@ const SingleUpgrade = ({ route, navigation }) => {
       } catch (serverError) {
         console.error('❌ Server error:', serverError);
         console.error('❌ Server response:', serverError?.response?.data);
-  
-        // ذخیره برای تلاش مجدد
+
         try {
           await AsyncStorage.setItem(
             'pending_purchase',
@@ -370,7 +367,7 @@ const SingleUpgrade = ({ route, navigation }) => {
         } catch (e) {
           console.error('Failed to store pending purchase:', e);
         }
-  
+
         const status = serverError?.response?.status;
         if (status === 401) {
           Alert.alert(
@@ -394,11 +391,11 @@ const SingleUpgrade = ({ route, navigation }) => {
             'لطفاً دوباره تلاش کنید یا با پشتیبانی تماس بگیرید.'
           );
         }
-  
+
         setPurchasing(false);
         return;
       }
-  
+
       // ---------------------------------------------------------------
       // مرحله ۴: بررسی پاسخ سرور
       // ---------------------------------------------------------------
@@ -416,14 +413,13 @@ const SingleUpgrade = ({ route, navigation }) => {
         } catch (e) {
           console.error('Failed to store pending purchase:', e);
         }
-  
+
         Alert.alert(
           'متاسفانه پرداخت انجام نشد',
           'خرید شما ثبت شد اما تایید سرور انجام نشد.\nدر صورت کسر وجه، مبلغ به‌زودی بازگردانده می‌شود.'
         );
       }
     } catch (err) {
-      // هر خطای پیش‌بینی‌نشده
       console.error('❌ Unexpected error in handleCheckout:', err);
       Alert.alert(
         'متاسفانه پرداخت انجام نشد',

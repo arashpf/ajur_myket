@@ -1116,11 +1116,6 @@
   resolved "https://registry.npmjs.org/@bcoe/v8-coverage/-/v8-coverage-0.2.3.tgz"
   integrity sha512-0hYQ8SB4Db5zvZB4axdMHGwEaQjkZzFjQiN9LVYvIFB2nSUHW9tYpxWriPrWDASIxiaXax83REcLxuSdnGPZtw==
 
-"@cafebazaar/react-native-poolakey@^3.1.2":
-  version "3.1.2"
-  resolved "https://registry.npmjs.org/@cafebazaar/react-native-poolakey/-/react-native-poolakey-3.1.2.tgz"
-  integrity sha512-rzn2hhrm26FyryJYNzvLXAIQgx6U+0mIJ8q8Zd4QUS2zH0VqO5RwTjpElzaIyMZB04M1oMyuALYeb9m2D+JX2g==
-
 "@changesets/apply-release-plan@^7.0.12":
   version "7.0.12"
   resolved "https://registry.npmjs.org/@changesets/apply-release-plan/-/apply-release-plan-7.0.12.tgz"
@@ -5970,6 +5965,11 @@ hyphenate-style-name@^1.0.3:
   version "1.0.4"
   resolved "https://registry.npmjs.org/hyphenate-style-name/-/hyphenate-style-name-1.0.4.tgz"
   integrity sha512-ygGZLjmXfPHj+ZWh6LwbC37l43MhfztxetbFCoYTM2VjkIUpeHgSNn7QIyVFj7YQ1Wl9Cbw5sholVJPzWvC2MQ==
+
+iab-myket-reactnative@^1.0.16:
+  version "1.0.16"
+  resolved "https://registry.npmjs.org/iab-myket-reactnative/-/iab-myket-reactnative-1.0.16.tgz"
+  integrity sha512-KALy1BRS5WAdi0ztRiB7cTIuTItNgoKNkUzFzmsodR2gt9ZYtEq8WBTKXsrSARyFd70mcvbDWVDJ2AUKOJ6a5g==
 
 iconv-lite@^0.4.24, iconv-lite@0.4.24:
   version "0.4.24"
