@@ -1,0 +1,786 @@
+import { useState, useEffect } from 'react';
+import axios from 'axios';
+import { useToast, Box, Text } from 'native-base';
+import {
+  Alert
+} from 'react-native';
+import React from 'react';
+
+// ==================== API Imports for Draft ====================
+import {
+  getUserDraft,
+  saveDraft,
+  uploadImageToDraft,
+  uploadVideoToDraft,
+  deleteImageFromDraft,
+  deleteVideoFromDraft,
+  deleteDraft,
+  finalizeDraft,
+  getPropertyById,
+} from './api';
+
+// ==================== Hook برای مدیریت دسته بندی‌ها ====================
+export const useCategories = () => {
+  const [allCategories, setAllCategories] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [loadingCategories, setLoadingCategories] = useState(true);
+  const [catId, setCatId] = useState(null);
+  const toast = useToast();
+
+  const fetchCategories = async () => {
+    setLoadingCategories(true);
+    try {
+      const response = await axios.get('https://api.ajur.app/api/sub-category');
+      setAllCategories(response.data);
+    } catch (error) {
+      // console.error('Error loading categories:', error);
+      toast.show({
+        render: () => (
+          <Box bg="red.700" px="15" py="3" rounded="md" mb={5}>
+            <Text style={{ color: 'white', fontSize: 16 }}>
+              خطا در بارگذاری دسته بندی‌ها
+            </Text>
+          </Box>
+        ),
+      });
+    } finally {
+      setLoadingCategories(false);
+    }
+  };
+
+  const selectCategory = (category) => {
+    setSelectedCategory(category);
+    setCatId(category.id);
+  };
+
+  useEffect(() => {
+    fetchCategories();
+  }, []);
+
+  return {
+    allCategories,
+    selectedCategory,
+    loadingCategories,
+    catId,
+    selectCategory,
+  };
+};
+
+// ==================== Hook برای مدیریت فیلدهای دسته بندی ====================
+export const useFields = (catId) => {
+  const [normalFields, setNormalFields] = useState([]);
+  const [predefineFields, setPredefineFields] = useState([]);
+  const [tickFields, setTickFields] = useState([]);
+  const [loadingFields, setLoadingFields] = useState(true);
+
+  useEffect(() => {
+    if (catId) {
+      setLoadingFields(true);
+      axios({
+        method: 'get',
+        url: 'https://api.ajur.app/api/category-fields',
+        params: { cat: catId },
+      })
+        .then((response) => {
+          setNormalFields(
+            response.data.normal_fields.sort((a, b) => (a.sort > b.sort ? 1 : -1))
+          );
+          setTickFields(response.data.tick_fields);
+          setPredefineFields(response.data.predefine_fields);
+          setLoadingFields(false);
+        })
+        .catch((error) => {
+          // console.error('Error loading fields:', error);
+          setLoadingFields(false);
+        });
+    }
+  }, [catId]);
+
+  return {
+    normalFields,
+    predefineFields,
+    tickFields,
+    loadingFields,
+  };
+};
+
+// ==================== Hook برای مدیریت فرم ملک ====================
+export const usePropertyForm = () => {
+  const [properties, setProperties] = useState([]);
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [note, setNote] = useState('');
+
+  const addProperty = (property) => {
+    setProperties((prev) => [...prev, property]);
+  };
+
+  const removeProperty = (propertyName) => {
+    setProperties((prev) => prev.filter((item) => item.name !== propertyName));
+  };
+
+  const updateProperty = (propertyName, value) => {
+    const existing = properties.find((p) => p.name === propertyName);
+    if (existing) {
+      setProperties((prev) =>
+        prev.map((p) => (p.name === propertyName ? { ...p, value } : p))
+      );
+    } else {
+      addProperty({ name: propertyName, value });
+    }
+  };
+
+  const upsertProperty = (property) => {
+    setProperties((prev) => {
+      const existingIndex = prev.findIndex((p) => p.name === property.name);
+      
+      if (existingIndex !== -1) {
+        const updated = [...prev];
+        updated[existingIndex] = { ...updated[existingIndex], value: property.value };
+        return updated;
+      }
+      return [...prev, property];
+    });
+  };
+
+  const clearProperties = () => {
+    setProperties([]);
+  };
+
+  return {
+    properties,
+    title,
+    setTitle,
+    description,
+    setDescription,
+    note,
+    setNote,
+    addProperty,
+    removeProperty,
+    updateProperty,
+    upsertProperty,
+    clearProperties,
+  };
+};
+
+// ==================== Hook برای مدیریت عکس‌ها ====================
+export const useImageManager = () => {
+  const [images, setImages] = useState([]);
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [isImageModalVisible, setIsImageModalVisible] = useState(false);
+
+  const addImages = (newImages) => {
+    setImages((prev) => [...prev, ...newImages]);
+  };
+
+  const deleteImage = (image) => {
+    setImages((prev) => prev.filter((img) => img.uri !== image.uri));
+  };
+
+  const setMainImage = (image) => {
+    setImages((prev) => {
+      const filtered = prev.filter((img) => img.uri !== image.uri);
+      return [image, ...filtered];
+    });
+  };
+
+  const openImagePreview = (image) => {
+    setSelectedImage(image);
+    setIsImageModalVisible(true);
+  };
+
+  const closeImagePreview = () => {
+    setSelectedImage(null);
+    setIsImageModalVisible(false);
+  };
+
+  const updateImage = (oldUri, newData) => {
+    setImages((prev) =>
+      prev.map((img) =>
+        img.uri === oldUri ? { ...img, ...newData } : img
+      )
+    );
+  };
+
+  return {
+    images,
+    selectedImage,
+    isImageModalVisible,
+    addImages,
+    deleteImage,
+    setMainImage,
+    openImagePreview,
+    closeImagePreview,
+    updateImage,
+  };
+};
+
+// ==================== Hook برای مدیریت ویدیوها ====================
+// In useVideoManager hook - ADD THIS NEW STATE and UPDATE THE RETURN:
+
+// In hooks.js - useVideoManager
+export const useVideoManager = () => {
+  const [videos, setVideos] = useState([]);
+  const [selectedVideo, setSelectedVideo] = useState(null);
+  const [videoModalVisible, setVideoModalVisible] = useState(false);
+  const [selectedVideoUri, setSelectedVideoUri] = useState(null);
+  const [showTrimmer, setShowTrimmer] = useState(false);
+  const [trimmedVideoUri, setTrimmedVideoUri] = useState(null);
+  const [isCompressing, setIsCompressing] = useState(false);
+  const [compressingVideoUri, setCompressingVideoUri] = useState(null);
+
+  const addVideo = (video) => {
+    setVideos((prev) => [...prev, video]);
+  };
+
+  const deleteVideo = (video) => {
+    setVideos((prev) => prev.filter((v) => v.uri !== video.uri));
+  };
+
+  const openVideoPreview = (video) => {
+    setSelectedVideo(video);
+    setVideoModalVisible(true);
+  };
+
+  const closeVideoPreview = () => {
+    setSelectedVideo(null);
+    setVideoModalVisible(false);
+  };
+
+  const handleVideoSelected = (video) => {
+    console.log('🎬 Video selected in hook:', video);
+    setSelectedVideo(video);
+    setSelectedVideoUri(video.uri);
+    setShowTrimmer(true);
+    
+    // ============ IMPORTANT: Add video to array immediately with "processing" status ============
+    const processingVideo = {
+      uri: video.uri,
+      mime: video.mime || 'video/mp4',
+      width: video.width || 1080,
+      height: video.height || 1080,
+      isFromDraft: false,
+      isProcessing: true,  // ← Mark as processing
+      error: false,
+    };
+    setVideos((prev) => [...prev, processingVideo]);
+    setCompressingVideoUri(video.uri);
+  };
+
+  const handleTrimmedAndCompressed = (compressedVideoUri) => {
+    console.log('📤 Compressed video URI in hook:', compressedVideoUri);
+    
+    // Remove the processing video from the array
+    setVideos((prev) => prev.filter((v) => v.uri !== selectedVideoUri));
+    
+    if (compressedVideoUri) {
+      // Add the final compressed video
+      const newVideo = {
+        uri: compressedVideoUri,
+        mime: selectedVideo?.mime || 'video/mp4',
+        width: 1080,
+        height: 1080,
+        isFromDraft: false,
+        isProcessing: false,
+        error: false,
+      };
+      setVideos((prev) => [...prev, newVideo]);
+      setTrimmedVideoUri(compressedVideoUri);
+    }
+    
+    setShowTrimmer(false);
+    setSelectedVideo(null);
+    setSelectedVideoUri(null);
+    setCompressingVideoUri(null);
+    setIsCompressing(false);
+  };
+
+  const startCompressing = () => {
+    console.log('📹 startCompressing called');
+    setIsCompressing(true);
+  };
+
+  const endCompressing = () => {
+    console.log('📹 endCompressing called');
+    setIsCompressing(false);
+  };
+
+  const closeTrimmer = () => {
+    console.log('❌ Closing trimmer');
+    // Remove the processing video if user cancels
+    if (selectedVideoUri) {
+      setVideos((prev) => prev.filter((v) => v.uri !== selectedVideoUri));
+    }
+    setShowTrimmer(false);
+    setSelectedVideo(null);
+    setSelectedVideoUri(null);
+    setCompressingVideoUri(null);
+    setIsCompressing(false);
+  };
+
+  const closeTrimmer2 = () => {
+    // Alert.alert('closetirmer2 called');
+    // Remove the processing video if user cancels
+    // if (selectedVideoUri) {
+    //   setVideos((prev) => prev.filter((v) => v.uri !== selectedVideoUri));
+    // }
+    setShowTrimmer(false);
+    // setSelectedVideo(null);
+    // setSelectedVideoUri(null);
+    // setCompressingVideoUri(null);
+    // setIsCompressing(false);
+  };
+
+  return {
+    videos,
+    selectedVideo,
+    videoModalVisible,
+    selectedVideoUri,
+    setSelectedVideoUri,
+    showTrimmer,
+    setShowTrimmer,
+    trimmedVideoUri,
+    isCompressing,
+    compressingVideoUri,
+    addVideo,
+    deleteVideo,
+    openVideoPreview,
+    closeVideoPreview,
+    setSelectedVideoUri,
+    handleVideoSelected,
+    handleTrimmedAndCompressed,
+    closeTrimmer,
+    closeTrimmer2,
+    startCompressing,
+    endCompressing,
+  };
+};
+
+// ==================== Hook برای مدیریت آپلود ====================
+export const useUpload = () => {
+  const [beginUpload, setBeginUpload] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  const startUpload = () => {
+    setBeginUpload(true);
+    setUploadProgress(0);
+  };
+
+  const updateProgress = (progress) => {
+    setUploadProgress(progress);
+  };
+
+  const finishUpload = () => {
+    setBeginUpload(false);
+    setUploadProgress(0);
+  };
+
+  return {
+    beginUpload,
+    uploadProgress,
+    startUpload,
+    updateProgress,
+    finishUpload,
+  };
+};
+
+// ==================== Hook برای مدیریت Draft ====================
+export const useDraft = ({ mode, propertyId, categoryId, navigation }) => {
+  const toast = useToast();
+  const [draftId, setDraftId] = useState(null);
+  const [draftData, setDraftData] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isExistingDraft, setIsExistingDraft] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [isVideoUploading, setIsVideoUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [currentUploadVideoUri, setCurrentUploadVideoUri] = useState(null);
+  const [cancelVideoUpload, setCancelVideoUpload] = useState(false);
+
+  // const loadOrCreateDraft = async (formData) => {
+  //   setIsLoading(true);
+  //   try {
+  //     if (mode === 'edit' && propertyId) {
+  //       setIsEditMode(true);
+  //       const property = await getPropertyById(propertyId);
+  //       if (property) {
+  //         setDraftId(property.id);
+  //         setDraftData(property);
+  //         setIsExistingDraft(true);
+  //         setIsLoading(false);
+  //         return property;
+  //       }
+  //     }
+
+  //     const draft = await getUserDraft();
+      
+  //     if (draft) {
+  //       setDraftId(draft.id);
+  //       setDraftData(draft);
+  //       setIsExistingDraft(true);
+  //       setIsLoading(false);
+  //       return draft;
+  //     }
+
+  //     const newDraft = await saveDraft({
+  //       category_id: categoryId || null,
+  //       title: formData?.title || '',
+  //       description: formData?.description || '',
+  //       note: formData?.note || '',
+  //       properties: formData?.properties || [],
+  //     });
+
+  //     if (newDraft) {
+  //       setDraftId(newDraft.id);
+  //       setDraftData(newDraft);
+  //       setIsExistingDraft(false);
+  //       setIsLoading(false);
+  //       return newDraft;
+  //     }
+
+  //     setIsLoading(false);
+  //     return null;
+  //   } catch (error) {
+  //     // console.error('Error loading/creating draft:', error);
+  //     toast.show({
+  //       render: () => (
+  //         <Box bg="red.700" px="15" py="3" rounded="md" mb={5}>
+  //           <Text style={{ color: 'white', fontSize: 16 }}>
+  //             خطا در بارگذاری پیش‌نویس
+  //           </Text>
+  //         </Box>
+  //       ),
+  //     });
+  //     setIsLoading(false);
+  //     return null;
+  //   }
+  // };
+
+  // hooks.js - useDraft
+
+const loadOrCreateDraft = async (formData) => {
+  console.log('🔄 loadOrCreateDraft called');
+  console.log('📤 mode:', mode, 'propertyId:', propertyId);
+  console.log('📤 formData:', formData);
+  
+  setIsLoading(true);
+  try {
+    // ============ EDIT MODE ============
+    if (mode === 'edit' && propertyId) {
+      console.log('📤 EDIT MODE: Fetching property by ID:', propertyId);
+      setIsEditMode(true);
+      
+      try {
+        const property = await getPropertyById(propertyId);
+        console.log('✅ Property fetched:', property);
+        
+        if (property) {
+          setDraftId(property.id);
+          setDraftData(property);
+          setIsExistingDraft(true);
+          setIsLoading(false);
+          return property;
+        } else {
+          console.log('⚠️ Property not found, creating new draft');
+          // Fallback to new draft
+          const newDraft = await saveDraft({
+            category_id: categoryId || null,
+            title: formData?.title || '',
+            description: formData?.description || '',
+            note: formData?.note || '',
+            properties: formData?.properties || [],
+          });
+          
+          if (newDraft) {
+            setDraftId(newDraft.id);
+            setDraftData(newDraft);
+            setIsExistingDraft(false);
+            setIsLoading(false);
+            return newDraft;
+          }
+        }
+      } catch (fetchError) {
+        console.error('❌ Error fetching property:', fetchError);
+        console.log('⚠️ Falling back to new draft');
+        // Fallback to new draft
+        const newDraft = await saveDraft({
+          category_id: categoryId || null,
+          title: formData?.title || '',
+          description: formData?.description || '',
+          note: formData?.note || '',
+          properties: formData?.properties || [],
+        });
+        
+        if (newDraft) {
+          setDraftId(newDraft.id);
+          setDraftData(newDraft);
+          setIsExistingDraft(false);
+          setIsLoading(false);
+          return newDraft;
+        }
+      }
+    }
+
+    // ============ NEW MODE ============
+    console.log('📤 NEW MODE: Getting user draft');
+    const draft = await getUserDraft();
+    console.log('📤 getUserDraft result:', draft);
+    
+    if (draft) {
+      console.log('✅ Existing draft found');
+      setDraftId(draft.id);
+      setDraftData(draft);
+      setIsExistingDraft(true);
+      setIsLoading(false);
+      return draft;
+    }
+
+    console.log('📤 No draft found, creating new draft');
+    const newDraft = await saveDraft({
+      category_id: categoryId || null,
+      title: formData?.title || '',
+      description: formData?.description || '',
+      note: formData?.note || '',
+      properties: formData?.properties || [],
+    });
+    console.log('✅ New draft created:', newDraft);
+
+    if (newDraft) {
+      setDraftId(newDraft.id);
+      setDraftData(newDraft);
+      setIsExistingDraft(false);
+      setIsLoading(false);
+      return newDraft;
+    }
+
+    console.log('⚠️ Failed to create draft');
+    setIsLoading(false);
+    return null;
+    
+  } catch (error) {
+    console.error('❌ Error loading/creating draft:', error);
+    console.error('❌ Error message:', error.message);
+    console.error('❌ Error stack:', error.stack);
+    
+    toast.show({
+      render: () => (
+        <Box bg="red.700" px="15" py="3" rounded="md" mb={5}>
+          <Text style={{ color: 'white', fontSize: 16 }}>
+            خطا در بارگذاری پیش‌نویس: {error.message || 'خطای ناشناخته'}
+          </Text>
+        </Box>
+      ),
+    });
+    setIsLoading(false);
+    return null;
+  }
+};
+
+  const updateDraftData = async (data) => {
+    if (!draftId) {
+      // console.error('No draft ID found for update');
+      return null;
+    }
+    try {
+      const updated = await saveDraft({
+        draft_id: draftId,
+        ...data,
+      });
+      setDraftData(updated);
+      return updated;
+    } catch (error) {
+      // console.error('Error updating draft:', error);
+      throw error;
+    }
+  };
+
+  const uploadImage = async (imageUri, mimeType) => {
+    if (!draftId) {
+      // console.error('No draft ID for image upload');
+      return null;
+    }
+    try {
+      const result = await uploadImageToDraft(draftId, imageUri, mimeType);
+      return result;
+    } catch (error) {
+      // console.error('Error uploading image:', error);
+      throw error;
+    }
+  };
+
+  // ==================== UPLOAD VIDEO (FIXED) ====================
+  const uploadVideo = async (videoUri, mimeType) => {
+    console.log('========== UPLOAD VIDEO CALLED ==========');
+    console.log('Draft ID:', draftId);
+    console.log('Video URI:', videoUri);
+    console.log('MIME Type:', mimeType);
+    
+    // Check if draftId exists
+    if (!draftId) {
+      // console.error('❌ No draft ID for video upload');
+      toast.show({
+        render: () => (
+          <Box bg="red.700" px="15" py="3" rounded="md" mb={5}>
+            <Text style={{ color: 'white', fontSize: 16 }}>
+              خطا: شناسه پیش‌نویس یافت نشد
+            </Text>
+          </Box>
+        ),
+      });
+      return null;
+    }
+
+    // Check if videoUri exists
+    if (!videoUri) {
+      // console.error('❌ No video URI provided');
+      toast.show({
+        render: () => (
+          <Box bg="red.700" px="15" py="3" rounded="md" mb={5}>
+            <Text style={{ color: 'white', fontSize: 16 }}>
+              خطا: ویدیویی انتخاب نشده است
+            </Text>
+          </Box>
+        ),
+      });
+      return null;
+    }
+
+    console.log('✅ Draft ID exists, starting upload...');
+    
+    setIsVideoUploading(true);
+    setUploadProgress(0);
+    setCurrentUploadVideoUri(videoUri);
+    setCancelVideoUpload(false);
+
+    try {
+      console.log('📤 Calling uploadVideoToDraft API...');
+      const result = await uploadVideoToDraft(
+        draftId,
+        videoUri,
+        mimeType,
+        (progress) => {
+          console.log(`📊 Upload progress: ${progress}%`);
+          if (cancelVideoUpload) {
+            throw new Error('Upload cancelled');
+          }
+          setUploadProgress(progress);
+        }
+      );
+      
+      console.log('✅ Upload successful:', result);
+      setIsVideoUploading(false);
+      setUploadProgress(100);
+      setCurrentUploadVideoUri(null);
+      return result;
+      
+    } catch (error) {
+      // console.error('❌ Upload error:', error);
+      setIsVideoUploading(false);
+      setUploadProgress(0);
+      setCurrentUploadVideoUri(null);
+      
+      if (error.message === 'Upload cancelled') {
+        console.log('⏹️ Video upload cancelled by user');
+        return null;
+      }
+      
+      // Show error message
+      const errorMessage = error.response?.data?.message || error.message || 'خطا در آپلود ویدیو';
+      toast.show({
+        render: () => (
+          <Box bg="red.700" px="15" py="3" rounded="md" mb={5}>
+            <Text style={{ color: 'white', fontSize: 16 }}>
+              {errorMessage}
+            </Text>
+          </Box>
+        ),
+      });
+      return null;
+    }
+  };
+
+  const cancelUpload = () => {
+    setCancelVideoUpload(true);
+    setIsVideoUploading(false);
+    setUploadProgress(0);
+    setCurrentUploadVideoUri(null);
+  };
+
+  const deleteImage = async (imageId) => {
+    if (!draftId) {
+      // console.error('No draft ID for image delete');
+      return null;
+    }
+    try {
+      const result = await deleteImageFromDraft(imageId);
+      return result;
+    } catch (error) {
+      // console.error('Error deleting image:', error);
+      throw error;
+    }
+  };
+
+  const deleteVideo = async (videoId) => {
+    if (!draftId) {
+      // console.error('No draft ID for video delete');
+      return null;
+    }
+    try {
+      const result = await deleteVideoFromDraft(videoId);
+      return result;
+    } catch (error) {
+      // console.error('Error deleting video:', error);
+      throw error;
+    }
+  };
+
+  const finalize = async (data) => {
+    if (!draftId) {
+      // console.error('No draft ID to finalize');
+      return null;
+    }
+    try {
+      const result = await finalizeDraft(draftId, data);
+      return result;
+    } catch (error) {
+      // console.error('Error finalizing draft:', error);
+      throw error;
+    }
+  };
+
+  const deleteDraftData = async () => {
+    if (!draftId) {
+      return null;
+    }
+    try {
+      const result = await deleteDraft(draftId);
+      setDraftId(null);
+      setDraftData(null);
+      setIsExistingDraft(false);
+      return result;
+    } catch (error) {
+      // console.error('Error deleting draft:', error);
+      throw error;
+    }
+  };
+
+  return {
+    draftId,
+    draftData,
+    isLoading,
+    isExistingDraft,
+    isEditMode,
+    isVideoUploading,
+    uploadProgress,
+    currentUploadVideoUri,
+    loadOrCreateDraft,
+    updateDraftData,
+    uploadImage,
+    uploadVideo,
+    deleteImage,
+    deleteVideo,
+    cancelUpload,
+    finalize,
+    deleteDraftData,
+  };
+};

@@ -1,0 +1,239 @@
+// // Top-level build file where you can add configuration options common to all sub-projects/modules.
+
+// buildscript {
+//     ext {
+//         buildToolsVersion = "34.0.0"
+//         minSdkVersion = 21
+//         compileSdkVersion = 33
+//         targetSdkVersion = 33
+
+//         rngesturehandlerVersion = "2.8.0"
+
+        
+        
+
+//         if (System.properties['os.arch'] == "aarch64") {
+//             // For M1 Users we need to use the NDK 24 which added support for aarch64
+//             ndkVersion = "24.0.8215888"
+//         } else {
+//             // Otherwise we default to the side-by-side NDK version from AGP.
+//             ndkVersion = "21.4.7075529"
+//         }
+//     }
+//     repositories {
+//         google()
+//         mavenCentral()
+//         jcenter() // 
+//          maven { url "https://artifactory.img.ly/artifactory/imgly" }
+         
+
+         
+//     }
+
+    
+    
+    
+//     dependencies {
+        
+     
+
+//         // classpath("com.android.tools.build:gradle:7.2.1")
+//         classpath("com.android.tools.build:gradle:7.4.2")
+//         // classpath("com.facebook.react:react-native-gradle-plugin")
+//         classpath("de.undercouch:gradle-download-task:5.0.1")
+//         // classpath("com.google.gms.google-services:4.4.0")
+        
+//         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.8.0"
+//         classpath 'ly.img.android.sdk:plugin:10.9.0'
+//         classpath 'com.google.devtools.ksp:com.google.devtools.ksp.gradle.plugin:1.8.0-1.0.9' // KSP version is depending on your Kotlin version.
+//         classpath 'com.google.gms:google-services:4.4.0'
+//         classpath 'com.google.firebase:firebase-appdistribution-gradle:4.0.0' // Add this
+
+        
+
+       
+       
+
+        
+        
+
+//         // classpath 'com.google.gms:google-services:4.1.0'
+        
+//         // NOTE: Do not place your application dependencies here; they belong
+//         // in the individual module build.gradle files
+       
+//     }
+// }
+
+// allprojects {
+//     repositories {
+//         maven {
+//             // All of React Native (JS, Obj-C sources, Android binaries) is installed from npm
+//             url("$rootDir/../node_modules/react-native/android")
+//         }
+//         maven {
+//             // Android JSC is installed from npm
+//             url("$rootDir/../node_modules/jsc-android/dist")
+//         }
+        
+       
+//         mavenCentral {
+//             // We don't want to fetch react-native from Maven Central as there are
+//             // older versions over there.
+//             content {
+//                 excludeGroup "com.facebook.react"
+//             }
+//         }
+
+        
+//         google()
+//         maven { url 'https://www.jitpack.io' }
+//         maven { url 'https://artifactory.img.ly/artifactory/imgly' }
+//     }
+// }
+
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+
+// buildscript {
+//     ext {
+//         buildToolsVersion = "34.0.0"
+//         minSdkVersion = 21
+//         compileSdkVersion = 34
+//         targetSdkVersion = 34
+//         googlePlayServicesVersion = "21.2.0"
+//         rngesturehandlerVersion = "2.8.0"
+
+//         if (System.properties['os.arch'] == "aarch64") {
+//             // For Apple Silicon (M1/M2) Macs, use NDK 24
+//             ndkVersion = "24.0.8215888"
+//         } else {
+//             // Default NDK version
+//             ndkVersion = "21.4.7075529"
+//         }
+//     }
+
+//     repositories {
+//         google()
+//         mavenCentral()
+//     }
+
+//     dependencies {
+//         classpath("com.android.tools.build:gradle:7.4.2")
+//         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.8.0"
+//         classpath 'com.google.devtools.ksp:com.google.devtools.ksp.gradle.plugin:1.8.0-1.0.9'
+//         classpath 'com.google.gms:google-services:4.4.0'
+//         classpath 'com.google.firebase:firebase-appdistribution-gradle:4.0.0'
+//         classpath("de.undercouch:gradle-download-task:5.0.1")
+//     }
+// }
+
+// allprojects {
+//     repositories {
+//         google()
+
+//         mavenCentral {
+//             // Exclude old React Native versions living in Central
+//             content {
+//                 excludeGroup "com.facebook.react"
+//             }
+//         }
+
+//         // React Native Android sources
+//         maven {
+//             url("$rootDir/../node_modules/react-native/android")
+//         }
+
+//         // Android JSC binaries from npm
+//         maven {
+//             url("$rootDir/../node_modules/jsc-android/dist")
+//         }
+
+//         // Other common open-source packages
+//         maven { url 'https://www.jitpack.io' }
+//     }
+// }
+buildscript {
+    ext {
+        buildToolsVersion = "34.0.0"
+        minSdkVersion = 21
+        compileSdkVersion = 34
+        targetSdkVersion = 34
+
+        // Force older Google Play Services compatible with RN 0.70
+        googlePlayServicesVersion = "21.2.0"
+
+        rngesturehandlerVersion = "2.8.0"
+
+        if (System.properties['os.arch'] == "aarch64") {
+            // For Apple Silicon (M1/M2) Macs, use NDK 24
+            ndkVersion = "24.0.8215888"
+        } else {
+            // Default NDK version
+            ndkVersion = "21.4.7075529"
+        }
+    }
+
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath("com.android.tools.build:gradle:7.4.2")
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.8.0"
+        classpath 'com.google.devtools.ksp:com.google.devtools.ksp.gradle.plugin:1.8.0-1.0.9'
+        classpath 'com.google.gms:google-services:4.4.0'
+        classpath 'com.google.firebase:firebase-appdistribution-gradle:4.0.0'
+        classpath("de.undercouch:gradle-download-task:5.0.1")
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+
+        mavenCentral {
+            // Exclude old React Native versions living in Central
+            content {
+                excludeGroup "com.facebook.react"
+            }
+        }
+
+        // React Native Android sources
+        maven {
+            url("$rootDir/../node_modules/react-native/android")
+        }
+
+        // Android JSC binaries from npm
+        maven {
+            url("$rootDir/../node_modules/jsc-android/dist")
+        }
+
+        // Other common open-source packages
+        maven { url 'https://www.jitpack.io' }
+
+        
+    }
+}
+
+subprojects {
+    configurations.all {
+        resolutionStrategy {
+            // --- Measurement stack ---
+            force "com.google.android.gms:play-services-measurement:21.2.0"
+            force "com.google.android.gms:play-services-measurement-impl:21.2.0"
+            force "com.google.android.gms:play-services-measurement-api:21.2.0"
+            force "com.google.android.gms:play-services-measurement-sdk-api:21.2.0"
+            force "com.google.android.gms:play-services-measurement-base:21.2.0"
+
+            // --- Core Play Services coherence ---
+            force "com.google.android.gms:play-services-base:18.2.0"
+            force "com.google.android.gms:play-services-basement:18.1.0"
+            force "com.google.android.gms:play-services-tasks:18.0.2"
+            force "com.google.android.gms:play-services-location:21.0.1"
+        }
+    }
+}
+
+
+

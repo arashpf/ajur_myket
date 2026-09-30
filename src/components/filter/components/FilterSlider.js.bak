@@ -1,0 +1,1442 @@
+// components/FilterSlider.js
+import React, { useRef, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+} from 'react-native';
+import Icon from 'react-native-vector-icons/MaterialIcons';
+import { formatNumberWithWords } from '../utils/formatters';
+
+const FilterSlider = ({
+  selectedCategory,
+  selectedNeighborhoods,
+  selectedFeatures,
+  rangeFilters,
+  sortBy,
+  hasActiveFilters,
+  onFilterModalOpen,
+  onFilterModalOpenForCategory,
+  onCategoryRemove,
+  onNeighborhoodRemove,
+  onFeatureRemove,
+  onRangeFilterRemove,
+  onSortRemove,
+  onResetAll,
+  getSortDisplayText,
+  activeFiltersCount,
+  fieldValues = {},
+  activeFieldFilters = [],
+  onFieldFilterRemove,
+  categoryFields = {},
+  onFieldFilterPress,
+}) => {
+  
+  const scrollViewRef = useRef(null);
+
+  // Helper to find field name by slug
+  const findFieldName = (slug) => {
+    const allFields = [
+      ...(categoryFields.normal || []),
+      ...(categoryFields.tick || []),
+      ...(categoryFields.predefine || [])
+    ];
+    const field = allFields.find(f => f.slug === slug);
+    return field?.name || field?.value || slug;
+  };
+
+  // Helper to find field unit by slug (kept for potential future use, but not used in display)
+  const findFieldUnit = (slug) => {
+    const allFields = [
+      ...(categoryFields.normal || []),
+      ...(categoryFields.tick || []),
+      ...(categoryFields.predefine || [])
+    ];
+    const field = allFields.find(f => f.slug === slug);
+    return field?.unit || '';
+  };
+
+  // Get all fields that should be displayed as chips
+  const getAllDisplayFields = () => {
+    const allFields = [
+      ...(categoryFields.normal || []),
+      ...(categoryFields.tick || []),
+      ...(categoryFields.predefine || [])
+    ];
+    return allFields;
+  };
+
+  // ✅ FIXED: Format display text - ONLY field name, no value, no unit
+  const getFieldDisplayText = (field, value) => {
+    const fieldName = field.name || findFieldName(field.slug);
+    
+    let displayText = fieldName;
+    let hasValue = false;
+    
+    // Only check if value exists, don't display it
+    if (value !== undefined && value !== null && value !== '') {
+      const isRange = field.type === 'normal_range' || field.type === 'range';
+      if (isRange) {
+        const { min, max } = value || {};
+        if ((min && min !== '' && min !== '0') || (max && max !== '' && max !== '0')) {
+          hasValue = true;
+        }
+      } else {
+        if (value !== '' && value !== null && value !== undefined && value !== '0') {
+          hasValue = true;
+        }
+      }
+    }
+    
+    // ✅ ONLY return the field name, nothing else
+    displayText = fieldName;
+    
+    return { displayText, hasValue };
+  };
+
+  // Check if a field is active (has X button)
+  const isFieldActive = (slug) => {
+    return activeFieldFilters.some(f => f.slug === slug);
+  };
+
+  // Render all field chips
+  const renderAllFieldChips = () => {
+    const allFields = getAllDisplayFields();
+    if (allFields.length === 0) return null;
+
+    return allFields.map((field) => {
+      const value = fieldValues[field.slug];
+      const { displayText, hasValue } = getFieldDisplayText(field, value);
+      const isActive = isFieldActive(field.slug);
+      
+      const shouldShowActive = isActive && hasValue;
+      
+      return (
+        <TouchableOpacity
+          key={`field-${field.slug}`}
+          style={[
+            styles.filterChip,
+            shouldShowActive ? styles.fieldChipActive : styles.fieldChipInactive,
+          ]}
+          onPress={() => onFieldFilterPress && onFieldFilterPress(field)}
+          activeOpacity={0.7}
+        >
+          <Text 
+            style={[
+              styles.filterChipText,
+              shouldShowActive ? styles.fieldChipActiveText : styles.fieldChipInactiveText,
+            ]}
+          >
+            {displayText}
+          </Text>
+          {shouldShowActive && (
+            <TouchableOpacity 
+              onPress={(e) => {
+                e.stopPropagation();
+                onFieldFilterRemove && onFieldFilterRemove(field.slug);
+              }}
+              style={styles.removeButton}
+            >
+              <Icon name="close" size={16} color="#b92a31" />
+            </TouchableOpacity>
+          )}
+        </TouchableOpacity>
+      );
+    });
+  };
+
+  // Scroll to end when filters change
+  useEffect(() => {
+    if (scrollViewRef.current) {
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    }
+  }, [activeFiltersCount, selectedCategory, selectedNeighborhoods, selectedFeatures, activeFieldFilters]);
+
+  return (
+    <View style={styles.filterSlider}>
+      <ScrollView 
+        ref={scrollViewRef}
+        horizontal 
+        showsHorizontalScrollIndicator={false}
+        style={styles.selectedFiltersScroll}
+        contentContainerStyle={styles.scrollContent}
+      >
+        {/* Clear All Button */}
+        {activeFiltersCount > 1 && (
+          <TouchableOpacity 
+            style={styles.filterChip}
+            onPress={onResetAll}
+          >
+            <Text style={styles.filterChipText}>حذف همه</Text>
+            <Icon name="close" size={16} color="#b92a31" style={styles.chipIcon} />
+          </TouchableOpacity>
+        )}
+        
+        {/* Selected Category */}
+        {selectedCategory && (
+          <TouchableOpacity 
+            style={styles.filterChip}  
+            onPress={onFilterModalOpenForCategory}
+          >
+            <Text style={styles.filterChipText}>
+              {selectedCategory.name || selectedCategory.title}
+            </Text>
+            <TouchableOpacity 
+              onPress={(e) => {
+                e.stopPropagation();
+                onCategoryRemove();
+              }}
+            >
+              <Icon name="close" size={16} color="#b92a31" style={styles.chipIcon} />
+            </TouchableOpacity>
+          </TouchableOpacity>
+        )}
+
+        {/* Selected Neighborhoods */}
+        {selectedNeighborhoods && selectedNeighborhoods.map((neighborhood) => (
+          <TouchableOpacity
+            key={`neighborhood-${neighborhood.id}`}
+            style={styles.filterChip}
+            onPress={() => onFilterModalOpen()}
+          >
+            <Text style={styles.filterChipText}>
+              محله: {neighborhood.name || neighborhood.label || neighborhood.title}
+            </Text>
+            <TouchableOpacity 
+              onPress={(e) => {
+                e.stopPropagation();
+                onNeighborhoodRemove(neighborhood);
+              }}
+            >
+              <Icon name="close" size={16} color="#b92a31" style={styles.chipIcon} />
+            </TouchableOpacity>
+          </TouchableOpacity>
+        ))}
+
+        {/* Selected Features */}
+        {selectedFeatures && selectedFeatures.map((feature) => (
+          <TouchableOpacity
+            key={`feature-${feature.value || feature.id}`}
+            style={styles.filterChip}
+            onPress={() => onFilterModalOpen()}
+          >
+            <Text style={styles.filterChipText}>
+              دارای {feature.name || feature.value || feature.label}
+            </Text>
+            <TouchableOpacity 
+              onPress={(e) => {
+                e.stopPropagation();
+                onFeatureRemove(feature);
+              }}
+            >
+              <Icon name="close" size={16} color="#b92a31" style={styles.chipIcon} />
+            </TouchableOpacity>
+          </TouchableOpacity>
+        ))}
+
+        {/* Range Filters */}
+        {rangeFilters && rangeFilters.map((filter) => {
+          if (filter.low !== '' || filter.high !== '') {
+            let label = `${filter.name}: `;
+            
+            if (filter.low !== '' && filter.high !== '') {
+              label += `${formatNumberWithWords(filter.low)} تا ${formatNumberWithWords(filter.high)} ${filter.unit || ''}`;
+            } else if (filter.low !== '') {
+              label += `از ${formatNumberWithWords(filter.low)} ${filter.unit || ''}`;
+            } else if (filter.high !== '') {
+              label += `تا ${formatNumberWithWords(filter.high)} ${filter.unit || ''}`;
+            }
+            
+            return (
+              <TouchableOpacity
+                key={`range-${filter.id}`}
+                style={styles.filterChip}
+                onPress={() => onFilterModalOpen()}
+              >
+                <Text style={styles.filterChipText}>{label}</Text>
+                <TouchableOpacity 
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onRangeFilterRemove(filter.id, 'low', '');
+                  }}
+                >
+                  <Icon name="close" size={16} color="#b92a31" style={styles.chipIcon} />
+                </TouchableOpacity>
+              </TouchableOpacity>
+            );
+          }
+          return null;
+        }).filter(Boolean)}
+
+        {/* ALL FIELD CHIPS - Always shown */}
+        {renderAllFieldChips()}
+
+        {/* Sort Filter */}
+        {sortBy && sortBy !== 'newest' && (
+          <TouchableOpacity
+            style={styles.filterChip}
+            onPress={() => onFilterModalOpen()}
+          >
+            <Text style={styles.filterChipText}>مرتب‌سازی: {getSortDisplayText()}</Text>
+            <TouchableOpacity 
+              onPress={(e) => {
+                e.stopPropagation();
+                onSortRemove();
+              }}
+            >
+              <Icon name="close" size={16} color="#b92a31" style={styles.chipIcon} />
+            </TouchableOpacity>
+          </TouchableOpacity>
+        )}
+
+        {/* دکمه فیلترها */}
+        <TouchableOpacity 
+          style={styles.filterButton}
+          onPress={onFilterModalOpen}
+        >
+          <Text style={styles.filterButtonText}>فیلترها</Text>
+          {activeFiltersCount > 0 && (
+            <View style={styles.filterCountBadge}>
+              <Text style={styles.filterCountText}>
+                {activeFiltersCount}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      </ScrollView>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  filterSlider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 2,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
+    minHeight: 60,
+  },
+  selectedFiltersScroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 1,
+  },
+  // Base chip style - Gray border by default
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    paddingHorizontal: 16,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: '#cccccc',
+    marginRight: 8,
+    height: 40,
+  },
+  // Active field chip (Red border)
+  fieldChipActive: {
+    borderColor: '#b92a31',
+    borderWidth: 2,
+  },
+  fieldChipActiveText: {
+    color: '#b92a31',
+    fontWeight: 'bold',
+  },
+  // Inactive field chip (Gray border)
+  fieldChipInactive: {
+    borderColor: '#cccccc',
+    borderWidth: 1.5,
+  },
+  fieldChipInactiveText: {
+    color: '#666666',
+  },
+  filterChipText: {
+    fontSize: 14,
+    fontFamily: 'iransans',
+    fontWeight: '500',
+    marginRight: 8,
+  },
+  chipIcon: {
+    marginLeft: 4,
+  },
+  removeButton: {
+    padding: 2,
+  },
+  filterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'white',
+    paddingHorizontal: 16,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#b92a31',
+    marginRight: 8,
+    position: 'relative',
+    height: 40,
+  },
+  filterButtonText: {
+    fontSize: 14,
+    color: '#b92a31',
+    fontFamily: 'iransans',
+    fontWeight: '500',
+  },
+  filterCountBadge: {
+    position: 'absolute',
+    top: -3,
+    right: -8,
+    backgroundColor: '#b92a31',
+    borderRadius: 12,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'white',
+  },
+  filterCountText: {
+    color: 'white',
+    fontSize: 10,
+    fontFamily: 'iransans',
+    fontWeight: 'bold',
+    paddingHorizontal: 4,
+  },
+});
+
+export default FilterSlider;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//// rtl work fine verison , but there is no persian helper yet /////////////
+
+
+// components/FilterSlider.js
+import React, { useRef, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+} from 'react-native';
+import Icon from 'react-native-vector-icons/MaterialIcons';
+import { formatNumberWithWords } from '../utils/formatters';
+
+const FilterSlider = ({
+  selectedCategory,
+  selectedNeighborhoods,
+  selectedFeatures,
+  rangeFilters,
+  sortBy,
+  hasActiveFilters,
+  onFilterModalOpen,
+  onFilterModalOpenForCategory,
+  onCategoryRemove,
+  onNeighborhoodRemove,
+  onFeatureRemove,
+  onRangeFilterRemove,
+  onSortRemove,
+  onResetAll,
+  getSortDisplayText,
+  activeFiltersCount,
+  fieldValues = {},
+  activeFieldFilters = [],
+  onFieldFilterRemove,
+  categoryFields = {},
+  onFieldFilterPress,
+  onNeighborhoodPress,
+}) => {
+  
+  const scrollViewRef = useRef(null);
+  const isFirstLoad = useRef(true);
+
+  // Helper to find field name by slug
+  const findFieldName = (slug) => {
+    const allFields = [
+      ...(categoryFields.normal || []),
+      ...(categoryFields.tick || []),
+      ...(categoryFields.predefine || [])
+    ];
+    const field = allFields.find(f => f.slug === slug);
+    return field?.name || field?.value || slug;
+  };
+
+  // Helper to find field unit by slug
+  const findFieldUnit = (slug) => {
+    const allFields = [
+      ...(categoryFields.normal || []),
+      ...(categoryFields.tick || []),
+      ...(categoryFields.predefine || [])
+    ];
+    const field = allFields.find(f => f.slug === slug);
+    return field?.unit || '';
+  };
+
+  // Get all fields that should be displayed as chips
+  const getAllDisplayFields = () => {
+    const allFields = [
+      ...(categoryFields.normal || []),
+      ...(categoryFields.tick || []),
+      ...(categoryFields.predefine || [])
+    ];
+    return allFields;
+  };
+
+  // Format display text - ONLY field name, no value, no unit
+  const getFieldDisplayText = (field, value) => {
+    const fieldName = field.name || findFieldName(field.slug);
+    
+    let displayText = fieldName;
+    let hasValue = false;
+    
+    if (value !== undefined && value !== null && value !== '') {
+      const isRange = field.type === 'normal_range' || field.type === 'range';
+      if (isRange) {
+        const { min, max } = value || {};
+        if ((min && min !== '' && min !== '0') || (max && max !== '' && max !== '0')) {
+          hasValue = true;
+        }
+      } else {
+        if (value !== '' && value !== null && value !== undefined && value !== '0') {
+          hasValue = true;
+        }
+      }
+    }
+    
+    displayText = fieldName;
+    
+    return { displayText, hasValue };
+  };
+
+  // Check if a field is active (has X button)
+  const isFieldActive = (slug) => {
+    return activeFieldFilters.some(f => f.slug === slug);
+  };
+
+  // Render all field chips
+  const renderAllFieldChips = () => {
+    const allFields = getAllDisplayFields();
+    if (allFields.length === 0) return null;
+
+    const sortedFields = [...allFields].sort((a, b) => {
+      const aValue = fieldValues[a.slug];
+      const bValue = fieldValues[b.slug];
+      const aHasValue = aValue !== undefined && aValue !== null && aValue !== '';
+      const bHasValue = bValue !== undefined && bValue !== null && bValue !== '';
+      
+      if (aHasValue && !bHasValue) return -1;
+      if (!aHasValue && bHasValue) return 1;
+      
+      const sortA = parseInt(a.sort) || 999;
+      const sortB = parseInt(b.sort) || 999;
+      return sortA - sortB;
+    });
+
+    return sortedFields.map((field) => {
+      const value = fieldValues[field.slug];
+      const { displayText, hasValue } = getFieldDisplayText(field, value);
+      const isActive = isFieldActive(field.slug);
+      
+      const shouldShowActive = isActive && hasValue;
+      
+      return (
+        <TouchableOpacity
+          key={`field-${field.slug}`}
+          style={[
+            styles.filterChip,
+            shouldShowActive ? styles.fieldChipActive : styles.fieldChipInactive,
+          ]}
+          onPress={() => onFieldFilterPress && onFieldFilterPress(field)}
+          activeOpacity={0.7}
+        >
+          <Text 
+            style={[
+              styles.filterChipText,
+              shouldShowActive ? styles.fieldChipActiveText : styles.fieldChipInactiveText,
+            ]}
+          >
+            {displayText}
+          </Text>
+          {shouldShowActive && (
+            <TouchableOpacity 
+              onPress={(e) => {
+                e.stopPropagation();
+                onFieldFilterRemove && onFieldFilterRemove(field.slug);
+              }}
+              style={styles.removeButton}
+            >
+              <Icon name="close" size={16} color="#b92a31" />
+            </TouchableOpacity>
+          )}
+        </TouchableOpacity>
+      );
+    });
+  };
+
+  // Render neighborhood chip
+  const renderNeighborhoodChip = () => {
+    const hasValue = selectedNeighborhoods && selectedNeighborhoods.length > 0;
+    
+    const displayText = 'محله';
+    
+    return (
+      <TouchableOpacity
+        key="neighborhood-chip"
+        style={[
+          styles.filterChip,
+          hasValue ? styles.fieldChipActive : styles.fieldChipInactive,
+        ]}
+        onPress={() => onNeighborhoodPress && onNeighborhoodPress()}
+        activeOpacity={0.7}
+      >
+        <Text 
+          style={[
+            styles.filterChipText,
+            hasValue ? styles.fieldChipActiveText : styles.fieldChipInactiveText,
+          ]}
+        >
+          {displayText}
+        </Text>
+        {hasValue && (
+          <TouchableOpacity 
+            onPress={(e) => {
+              e.stopPropagation();
+              if (selectedNeighborhoods && selectedNeighborhoods.length > 0) {
+                onNeighborhoodRemove && onNeighborhoodRemove(selectedNeighborhoods[0]);
+              }
+            }}
+            style={styles.removeButton}
+          >
+            <Icon name="close" size={16} color="#b92a31" />
+          </TouchableOpacity>
+        )}
+      </TouchableOpacity>
+    );
+  };
+
+  // ✅ اسکرول به ابتدا (سمت راست برای row-reverse)
+  const scrollToStart = () => {
+    if (scrollViewRef.current) {
+      // برای row-reverse، scrollToEnd به ابتدا (سمت راست) می‌رود
+      scrollViewRef.current?.scrollToEnd({ animated: false });
+    }
+  };
+
+  // ✅ وقتی چیپ‌ها تغییر می‌کنند، به سمت راست اسکرول کن
+  useEffect(() => {
+    if (scrollViewRef.current) {
+      setTimeout(() => {
+        scrollToStart();
+      }, 150);
+    }
+  }, [activeFiltersCount, selectedCategory, selectedNeighborhoods, selectedFeatures, activeFieldFilters]);
+
+  return (
+    <View style={styles.filterSlider}>
+      <ScrollView 
+        ref={scrollViewRef}
+        horizontal 
+        showsHorizontalScrollIndicator={false}
+        style={styles.selectedFiltersScroll}
+        contentContainerStyle={styles.scrollContent}
+        // ✅ وقتی محتوا تغییر کرد، به ابتدا (سمت راست) برو
+        onContentSizeChange={() => {
+          if (isFirstLoad.current) {
+            isFirstLoad.current = false;
+            setTimeout(() => {
+              scrollToStart();
+            }, 50);
+          }
+        }}
+      >
+        {/* ✅ دکمه فیلترها - اولین آیتم (سمت راست) */}
+        <TouchableOpacity 
+          style={styles.filterButton}
+          onPress={onFilterModalOpen}
+        >
+          <Text style={styles.filterButtonText}>فیلترها</Text>
+          {activeFiltersCount > 0 && (
+            <View style={styles.filterCountBadge}>
+              <Text style={styles.filterCountText}>
+                {activeFiltersCount}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        {/* Sort Filter */}
+        {sortBy && sortBy !== 'newest' && (
+          <TouchableOpacity
+            style={styles.filterChip}
+            onPress={() => onFilterModalOpen()}
+          >
+            <Text style={styles.filterChipText}>مرتب‌سازی: {getSortDisplayText()}</Text>
+            <TouchableOpacity 
+              onPress={(e) => {
+                e.stopPropagation();
+                onSortRemove();
+              }}
+            >
+              <Icon name="close" size={16} color="#b92a31" style={styles.chipIcon} />
+            </TouchableOpacity>
+          </TouchableOpacity>
+        )}
+
+        {/* Range Filters */}
+        {rangeFilters && rangeFilters.map((filter) => {
+          if (filter.low !== '' || filter.high !== '') {
+            let label = `${filter.name}: `;
+            
+            if (filter.low !== '' && filter.high !== '') {
+              label += `${formatNumberWithWords(filter.low)} تا ${formatNumberWithWords(filter.high)} ${filter.unit || ''}`;
+            } else if (filter.low !== '') {
+              label += `از ${formatNumberWithWords(filter.low)} ${filter.unit || ''}`;
+            } else if (filter.high !== '') {
+              label += `تا ${formatNumberWithWords(filter.high)} ${filter.unit || ''}`;
+            }
+            
+            return (
+              <TouchableOpacity
+                key={`range-${filter.id}`}
+                style={styles.filterChip}
+                onPress={() => onFilterModalOpen()}
+              >
+                <Text style={styles.filterChipText}>{label}</Text>
+                <TouchableOpacity 
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onRangeFilterRemove(filter.id, 'low', '');
+                  }}
+                >
+                  <Icon name="close" size={16} color="#b92a31" style={styles.chipIcon} />
+                </TouchableOpacity>
+              </TouchableOpacity>
+            );
+          }
+          return null;
+        }).filter(Boolean)}
+
+        {/* ALL FIELD CHIPS */}
+        {renderAllFieldChips()}
+
+        {/* Selected Features */}
+        {selectedFeatures && selectedFeatures.map((feature) => (
+          <TouchableOpacity
+            key={`feature-${feature.value || feature.id}`}
+            style={styles.filterChip}
+            onPress={() => onFilterModalOpen()}
+          >
+            <Text style={styles.filterChipText}>
+              دارای {feature.name || feature.value || feature.label}
+            </Text>
+            <TouchableOpacity 
+              onPress={(e) => {
+                e.stopPropagation();
+                onFeatureRemove(feature);
+              }}
+            >
+              <Icon name="close" size={16} color="#b92a31" style={styles.chipIcon} />
+            </TouchableOpacity>
+          </TouchableOpacity>
+        ))}
+
+        {/* Neighborhood Chip */}
+        {renderNeighborhoodChip()}
+
+        {/* Selected Category */}
+        {selectedCategory && (
+          <TouchableOpacity 
+            style={styles.filterChip}  
+            onPress={onFilterModalOpenForCategory}
+          >
+            <Text style={styles.filterChipText}>
+              {selectedCategory.name || selectedCategory.title}
+            </Text>
+            <TouchableOpacity 
+              onPress={(e) => {
+                e.stopPropagation();
+                onCategoryRemove();
+              }}
+            >
+              <Icon name="close" size={16} color="#b92a31" style={styles.chipIcon} />
+            </TouchableOpacity>
+          </TouchableOpacity>
+        )}
+
+        {/* Clear All Button */}
+        {activeFiltersCount > 1 && (
+          <TouchableOpacity 
+            style={styles.filterChip}
+            onPress={onResetAll}
+          >
+            <Text style={styles.filterChipText}>حذف همه</Text>
+            <Icon name="close" size={16} color="#b92a31" style={styles.chipIcon} />
+          </TouchableOpacity>
+        )}
+      </ScrollView>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  filterSlider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 2,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
+    minHeight: 60,
+  },
+  selectedFiltersScroll: {
+    flex: 1,
+  },
+  // ✅ راست‌چین - محتوا از راست شروع می‌شود
+  scrollContent: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    paddingHorizontal: 1,
+  },
+  // Base chip style - Gray border by default
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    paddingHorizontal: 16,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: '#cccccc',
+    marginLeft: 8,
+    height: 40,
+  },
+  // Active field chip (Red border)
+  fieldChipActive: {
+    borderColor: '#b92a31',
+    borderWidth: 2,
+  },
+  fieldChipActiveText: {
+    color: '#b92a31',
+    fontWeight: 'bold',
+  },
+  // Inactive field chip (Gray border)
+  fieldChipInactive: {
+    borderColor: '#cccccc',
+    borderWidth: 1.5,
+  },
+  fieldChipInactiveText: {
+    color: '#666666',
+  },
+  filterChipText: {
+    fontSize: 14,
+    fontFamily: 'iransans',
+    fontWeight: '500',
+    marginLeft: 8,
+  },
+  chipIcon: {
+    marginRight: 4,
+  },
+  removeButton: {
+    padding: 2,
+  },
+  filterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'white',
+    paddingHorizontal: 16,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#b92a31',
+    marginLeft: 8,
+    position: 'relative',
+    height: 40,
+  },
+  filterButtonText: {
+    fontSize: 14,
+    color: '#b92a31',
+    fontFamily: 'iransans',
+    fontWeight: '500',
+  },
+  filterCountBadge: {
+    position: 'absolute',
+    top: -3,
+    right: -8,
+    backgroundColor: '#b92a31',
+    borderRadius: 12,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'white',
+  },
+  filterCountText: {
+    color: 'white',
+    fontSize: 10,
+    fontFamily: 'iransans',
+    fontWeight: 'bold',
+    paddingHorizontal: 4,
+  },
+});
+
+export default FilterSlider;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//////////// before final relese //////////////////////////////
+
+
+// components/FilterSlider.js
+import React, { useRef, useEffect, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+} from 'react-native';
+import Icon from 'react-native-vector-icons/MaterialIcons';
+import { formatNumberWithWords } from '../utils/formatters';
+
+const FilterSlider = ({
+  selectedCategory,
+  selectedNeighborhoods,
+  selectedFeatures,
+  rangeFilters,
+  sortBy,
+  hasActiveFilters,
+  onFilterModalOpen,
+  onFilterModalOpenForCategory,
+  onCategoryRemove,
+  onNeighborhoodRemove,
+  onFeatureRemove,
+  onRangeFilterRemove,
+  onSortRemove,
+  onResetAll,
+  getSortDisplayText,
+  activeFiltersCount,
+  fieldValues = {},
+  activeFieldFilters = [],
+  onFieldFilterRemove,
+  categoryFields = {},
+  onFieldFilterPress,
+  onNeighborhoodPress,
+}) => {
+  
+  const scrollViewRef = useRef(null);
+  const isFirstLoad = useRef(true);
+  const scrollTimeoutRef = useRef(null);
+
+  // Helper to find field name by slug
+  const findFieldName = (slug) => {
+    const allFields = [
+      ...(categoryFields.normal || []),
+      ...(categoryFields.tick || []),
+      ...(categoryFields.predefine || [])
+    ];
+    const field = allFields.find(f => f.slug === slug);
+    return field?.name || field?.value || slug;
+  };
+
+  // Helper to find field unit by slug
+  const findFieldUnit = (slug) => {
+    const allFields = [
+      ...(categoryFields.normal || []),
+      ...(categoryFields.tick || []),
+      ...(categoryFields.predefine || [])
+    ];
+    const field = allFields.find(f => f.slug === slug);
+    return field?.unit || '';
+  };
+
+  // Get all fields that should be displayed as chips
+  const getAllDisplayFields = () => {
+    const allFields = [
+      ...(categoryFields.normal || []),
+      ...(categoryFields.tick || []),
+      ...(categoryFields.predefine || [])
+    ];
+    return allFields;
+  };
+
+  // Format display text - ONLY field name, no value, no unit
+  const getFieldDisplayText = (field, value) => {
+    const fieldName = field.name || findFieldName(field.slug);
+    
+    let displayText = fieldName;
+    let hasValue = false;
+    
+    if (value !== undefined && value !== null && value !== '') {
+      const isRange = field.type === 'normal_range' || field.type === 'range';
+      if (isRange) {
+        const { min, max } = value || {};
+        if ((min && min !== '' && min !== '0') || (max && max !== '' && max !== '0')) {
+          hasValue = true;
+        }
+      } else {
+        if (value !== '' && value !== null && value !== undefined && value !== '0') {
+          hasValue = true;
+        }
+      }
+    }
+    
+    displayText = fieldName;
+    
+    return { displayText, hasValue };
+  };
+
+  // Check if a field is active (has X button)
+  const isFieldActive = (slug) => {
+    return activeFieldFilters.some(f => f.slug === slug);
+  };
+
+  // Render all field chips
+  const renderAllFieldChips = () => {
+    const allFields = getAllDisplayFields();
+    if (allFields.length === 0) return null;
+
+    const sortedFields = [...allFields].sort((a, b) => {
+      const aValue = fieldValues[a.slug];
+      const bValue = fieldValues[b.slug];
+      const aHasValue = aValue !== undefined && aValue !== null && aValue !== '';
+      const bHasValue = bValue !== undefined && bValue !== null && bValue !== '';
+      
+      if (aHasValue && !bHasValue) return -1;
+      if (!aHasValue && bHasValue) return 1;
+      
+      const sortA = parseInt(a.sort) || 999;
+      const sortB = parseInt(b.sort) || 999;
+      return sortA - sortB;
+    });
+
+    return sortedFields.map((field) => {
+      const value = fieldValues[field.slug];
+      const { displayText, hasValue } = getFieldDisplayText(field, value);
+      const isActive = isFieldActive(field.slug);
+      
+      const shouldShowActive = isActive && hasValue;
+      
+      return (
+        <TouchableOpacity
+          key={`field-${field.slug}`}
+          style={[
+            styles.filterChip,
+            shouldShowActive ? styles.fieldChipActive : styles.fieldChipInactive,
+          ]}
+          onPress={() => onFieldFilterPress && onFieldFilterPress(field)}
+          activeOpacity={0.7}
+        >
+          <Text 
+            style={[
+              styles.filterChipText,
+              shouldShowActive ? styles.fieldChipActiveText : styles.fieldChipInactiveText,
+            ]}
+          >
+            {displayText}
+          </Text>
+          {shouldShowActive && (
+            <TouchableOpacity 
+              onPress={(e) => {
+                e.stopPropagation();
+                onFieldFilterRemove && onFieldFilterRemove(field.slug);
+              }}
+              style={styles.removeButton}
+            >
+              <Icon name="close" size={18} color="#b92a31" />
+            </TouchableOpacity>
+          )}
+        </TouchableOpacity>
+      );
+    });
+  };
+
+  // Render neighborhood chip
+  const renderNeighborhoodChip = () => {
+    const hasValue = selectedNeighborhoods && selectedNeighborhoods.length > 0;
+    
+    const displayText = 'محله';
+    
+    return (
+      <TouchableOpacity
+        key="neighborhood-chip"
+        style={[
+          styles.filterChip,
+          hasValue ? styles.fieldChipActive : styles.fieldChipInactive,
+        ]}
+        onPress={() => onNeighborhoodPress && onNeighborhoodPress()}
+        activeOpacity={0.7}
+      >
+        <Text 
+          style={[
+            styles.filterChipText,
+            hasValue ? styles.fieldChipActiveText : styles.fieldChipInactiveText,
+          ]}
+        >
+          {displayText}
+        </Text>
+        {hasValue && (
+          <TouchableOpacity 
+            onPress={(e) => {
+              e.stopPropagation();
+              if (selectedNeighborhoods && selectedNeighborhoods.length > 0) {
+                onNeighborhoodRemove && onNeighborhoodRemove(selectedNeighborhoods[0]);
+              }
+            }}
+            style={styles.removeButton}
+          >
+            <Icon name="close" size={16} color="#b92a31" />
+          </TouchableOpacity>
+        )}
+      </TouchableOpacity>
+    );
+  };
+
+  // ✅ اسکرول به ابتدا (سمت راست)
+  const scrollToStart = () => {
+    if (scrollViewRef.current) {
+      scrollViewRef.current?.scrollToEnd({ animated: false });
+    }
+  };
+
+  // ✅ تابع برای اسکرول با تاخیر
+  const delayedScroll = (delay = 300) => {
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+    scrollTimeoutRef.current = setTimeout(() => {
+      scrollToStart();
+    }, delay);
+  };
+
+  // ✅ وقتی چیپ‌ها تغییر می‌کنند، به سمت راست اسکرول کن
+  useEffect(() => {
+    delayedScroll(300);
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
+  }, [activeFiltersCount, selectedCategory, selectedNeighborhoods, selectedFeatures, activeFieldFilters]);
+
+  // ✅ وقتی categoryFields تغییر کرد (فیلدها لود شدند)، اسکرول کن
+  useEffect(() => {
+    const allFields = getAllDisplayFields();
+    if (allFields.length > 0) {
+      delayedScroll(400);
+    }
+  }, [categoryFields]);
+
+  // ✅ وقتی fieldValues تغییر کرد، اسکرول کن
+  useEffect(() => {
+    delayedScroll(350);
+  }, [fieldValues]);
+
+  // ✅ در اولین بار با تاخیر بیشتر
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (scrollViewRef.current && isFirstLoad.current) {
+        scrollToStart();
+        isFirstLoad.current = false;
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, []);
+
+  return (
+    <View style={styles.filterSlider}>
+      <ScrollView 
+        ref={scrollViewRef}
+        horizontal 
+        showsHorizontalScrollIndicator={false}
+        style={styles.selectedFiltersScroll}
+        contentContainerStyle={styles.scrollContent}
+      >
+        {/* دکمه فیلترها - اولین آیتم (سمت راست) */}
+        <TouchableOpacity 
+          style={styles.filterButton}
+          onPress={onFilterModalOpen}
+        >
+          <Text style={styles.filterButtonText}>فیلترها</Text>
+          {activeFiltersCount > 0 && (
+            <View style={styles.filterCountBadge}>
+              <Text style={styles.filterCountText}>
+                {activeFiltersCount}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        {/* Sort Filter */}
+        {sortBy && sortBy !== 'newest' && (
+          <TouchableOpacity
+            style={styles.filterChip}
+            onPress={() => onFilterModalOpen()}
+          >
+            <Text style={styles.filterChipText}>مرتب‌سازی: {getSortDisplayText()}</Text>
+            <TouchableOpacity 
+              onPress={(e) => {
+                e.stopPropagation();
+                onSortRemove();
+              }}
+            >
+              <Icon name="close" size={16} color="blue" style={styles.chipIcon} />
+            </TouchableOpacity>
+          </TouchableOpacity>
+        )}
+
+        {/* Range Filters */}
+        {rangeFilters && rangeFilters.map((filter) => {
+          if (filter.low !== '' || filter.high !== '') {
+            let label = `${filter.name}: `;
+            
+            if (filter.low !== '' && filter.high !== '') {
+              label += `${formatNumberWithWords(filter.low)} تا ${formatNumberWithWords(filter.high)} ${filter.unit || ''}`;
+            } else if (filter.low !== '') {
+              label += `از ${formatNumberWithWords(filter.low)} ${filter.unit || ''}`;
+            } else if (filter.high !== '') {
+              label += `تا ${formatNumberWithWords(filter.high)} ${filter.unit || ''}`;
+            }
+            
+            return (
+              <TouchableOpacity
+                key={`range-${filter.id}`}
+                style={styles.filterChip}
+                onPress={() => onFilterModalOpen()}
+              >
+                <Text style={styles.filterChipText}>{label}</Text>
+                <TouchableOpacity 
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onRangeFilterRemove(filter.id, 'low', '');
+                  }}
+                >
+                  <Icon name="close" size={16} color="#b92a31" style={styles.chipIcon} />
+                </TouchableOpacity>
+              </TouchableOpacity>
+            );
+          }
+          return null;
+        }).filter(Boolean)}
+
+        {/* ALL FIELD CHIPS */}
+        {renderAllFieldChips()}
+
+        {/* Selected Features */}
+        {selectedFeatures && selectedFeatures.map((feature) => (
+          <TouchableOpacity
+            key={`feature-${feature.value || feature.id}`}
+            style={styles.filterChip}
+            onPress={() => onFilterModalOpen()}
+          >
+            <Text style={styles.filterChipText}>
+              دارای {feature.name || feature.value || feature.label}
+            </Text>
+            <TouchableOpacity 
+              onPress={(e) => {
+                e.stopPropagation();
+                onFeatureRemove(feature);
+              }}
+            >
+              <Icon name="close" size={16} color="#b92a31" style={styles.chipIcon} />
+            </TouchableOpacity>
+          </TouchableOpacity>
+        ))}
+
+        {/* Neighborhood Chip */}
+        {renderNeighborhoodChip()}
+
+        {/* Selected Category */}
+        {selectedCategory && (
+          <TouchableOpacity 
+            style={styles.filterChip}  
+            onPress={onFilterModalOpenForCategory}
+          >
+            <Text style={styles.filterChipText}>
+              {selectedCategory.name || selectedCategory.title}
+            </Text>
+            <TouchableOpacity 
+              onPress={(e) => {
+                e.stopPropagation();
+                onCategoryRemove();
+              }}
+            >
+              <Icon name="close" size={16} color="#b92a31" style={styles.chipIcon} />
+            </TouchableOpacity>
+          </TouchableOpacity>
+        )}
+
+        {/* Clear All Button */}
+        {activeFiltersCount > 1 && (
+          <TouchableOpacity 
+            style={styles.filterChip}
+            onPress={onResetAll}
+          >
+            <Text style={styles.filterChipText}>حذف همه</Text>
+            <Icon name="close" size={16} color="#b92a31" style={styles.chipIcon} />
+          </TouchableOpacity>
+        )}
+      </ScrollView>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  filterSlider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 2,
+    paddingHorizontal: 2,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
+    minHeight: 60,
+  },
+  selectedFiltersScroll: {
+    flex: 1,
+  },
+  // ✅ راست‌چین - محتوا از راست شروع می‌شود
+  scrollContent: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    paddingHorizontal: 1,
+  },
+  // Base chip style - Gray border by default
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: '#cccccc',
+    marginLeft: 8,
+    height: 40,
+  },
+  // Active field chip (Red border)
+  fieldChipActive: {
+    borderColor: '#b92a31',
+    borderWidth: 2,
+  },
+  fieldChipActiveText: {
+    color: '#b92a31',
+    fontWeight: 'bold',
+  },
+  // Inactive field chip (Gray border)
+  fieldChipInactive: {
+    borderColor: '#cccccc',
+    borderWidth: 1.5,
+  },
+  fieldChipInactiveText: {
+    color: '#666666',
+  },
+  filterChipText: {
+    fontSize: 14,
+    fontFamily: 'iransans',
+    fontWeight: '500',
+    marginLeft: 4,
+    marginRight:4
+  },
+  chipIcon: {
+    marginRight: 2,
+    marginLeft:2
+  },
+  removeButton: {
+    padding: 1,
+    marginLeft:5
+  },
+  filterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'white',
+    paddingHorizontal: 16,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#b92a31',
+    marginLeft: 8,
+    position: 'relative',
+    height: 40,
+  },
+  filterButtonText: {
+    fontSize: 14,
+    color: '#b92a31',
+    fontFamily: 'iransans',
+    fontWeight: '500',
+  },
+  filterCountBadge: {
+    position: 'absolute',
+    top: -3,
+    right: -8,
+    backgroundColor: '#b92a31',
+    borderRadius: 12,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'white',
+  },
+  filterCountText: {
+    color: 'white',
+    fontSize: 10,
+    fontFamily: 'iransans',
+    fontWeight: 'bold',
+    paddingHorizontal: 4,
+  },
+});
+
+export default FilterSlider;

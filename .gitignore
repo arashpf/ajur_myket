@@ -1,0 +1,34 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Android
+android/.gradle
+android/app/build
+android/local.properties
+android/GeneratedPluginRegistrant.java
+android/recipes
+android/app/src/main/assets
+*.keystore
+!android/app/debug.keystore
+
+# iOS
+ios/build/
+ios/Pods/
+ios/DerivedData/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+xcuserdata/
+project.xcworkspace/
+Contents.json
+*.xcuserstate
+
+# Misc
+.DS_Store
+.env
+.expo/
+dist/

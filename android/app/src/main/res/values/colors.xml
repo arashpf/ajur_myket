@@ -1,0 +1,4 @@
+<resources>
+    <color name="notification_color">#FF9900</color> <!-- or any color you like -->
+    <color name="burgundy">#a92b31</color>
+</resources>

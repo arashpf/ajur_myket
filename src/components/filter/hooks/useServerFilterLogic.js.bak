@@ -1,0 +1,173 @@
+// filter/hooks/useServerFilterLogic.js
+import { useState, useCallback, useEffect } from 'react';
+
+export const useServerFilterLogic = (onFiltersChange, options = {}) => {
+  const { 
+    dynamicTickFields = [],
+    initialCategory = null
+  } = options;
+
+  const [selectedCategory, setSelectedCategory] = useState(initialCategory);
+  const [selectedNeighborhoods, setSelectedNeighborhoods] = useState([]);
+  const [selectedFeatures, setSelectedFeatures] = useState([]);
+  const [rangeFilters, setRangeFilters] = useState([]);
+  const [sortBy, setSortBy] = useState('newest');
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [activeFilterSection, setActiveFilterSection] = useState('main');
+
+  useEffect(() => {
+    if (initialCategory && initialCategory.id) {
+      setSelectedCategory(initialCategory);
+    }
+  }, [initialCategory]);
+
+  const getFeaturesToUse = () => {
+    if (dynamicTickFields && dynamicTickFields.length > 0) {
+      console.log('🎯 Using dynamic tick fields:', dynamicTickFields.length);
+      return dynamicTickFields.map(field => ({
+        id: field.id,
+        name: field.name,
+        value: field.name,
+        label: field.label || field.name
+      }));
+    }
+    return [];
+  };
+
+  const getApiFilters = useCallback(() => {
+    const filters = {};
+  
+    if (selectedCategory) {
+      filters.category_id = selectedCategory.id;
+    }
+  
+    // CRITICAL FIX: Use 'neighborhoods' as comma-separated string
+    if (selectedNeighborhoods && selectedNeighborhoods.length > 0) {
+      const neighborhoodIds = selectedNeighborhoods.map(n => n.id).filter(id => id);
+      if (neighborhoodIds.length > 0) {
+        filters.neighborhoods = neighborhoodIds.join(',');
+        console.log('🏘️ Adding neighborhoods to API filters:', filters.neighborhoods);
+      }
+    }
+  
+    if (selectedFeatures && selectedFeatures.length > 0) {
+      filters.features = selectedFeatures.map(f => f.name || f.value);
+    }
+  
+    const sortMap = {
+      'newest': 'created_at',
+      'oldest': 'created_at_asc', 
+      'most_viewed': 'views'
+    };
+    filters.sort_by = sortMap[sortBy] || 'created_at';
+  
+    console.log('🔧 API Filters prepared:', filters);
+    return filters;
+  }, [selectedCategory, selectedNeighborhoods, selectedFeatures, rangeFilters, sortBy]);
+
+  const applyFilters = useCallback(() => {
+    const filters = getApiFilters();
+    onFiltersChange(filters, 1);
+  }, [getApiFilters, onFiltersChange]);
+
+  const handleCategorySelect = (category) => {
+    setSelectedCategory(category);
+    setActiveFilterSection('main');
+    setSelectedFeatures([]);
+    // Optionally reset neighborhoods when category changes
+    // setSelectedNeighborhoods([]);
+  };
+
+  const handleNeighborhoodToggle = (neighborhood) => {
+    console.log('🏘️ Toggling neighborhood:', neighborhood);
+    setSelectedNeighborhoods(prev => {
+      const exists = prev.some(n => n.id === neighborhood.id);
+      const newNeighborhoods = exists
+        ? prev.filter(n => n.id !== neighborhood.id)
+        : [...prev, neighborhood];
+      
+      console.log('Updated neighborhoods:', newNeighborhoods);
+      return newNeighborhoods;
+    });
+  };
+
+  const handleFeatureToggle = (feature) => {
+    setSelectedFeatures(prev =>
+      prev.some(f => f.value === feature.value || f.id === feature.id)
+        ? prev.filter(f => f.value !== feature.value && f.id !== feature.id)
+        : [...prev, feature]
+    );
+  };
+
+  const handleRangeFilterChange = (fieldId, type, value) => {
+    setRangeFilters(prev =>
+      prev.map(f =>
+        f.id === fieldId
+          ? {
+              ...f,
+              [type]: value === '' ? '' : parseFloat(value) || '',
+            }
+          : f
+      )
+    );
+  };
+
+  const handleSortChange = (newSortBy) => {
+    setSortBy(newSortBy);
+  };
+
+  const handleResetAll = () => {
+    setSelectedNeighborhoods([]);
+    setSelectedFeatures([]);
+    setRangeFilters(
+      rangeFilters.map(field => ({
+        ...field,
+        low: '',
+        high: '',
+      }))
+    );
+    setSortBy('newest');
+  };
+
+  const hasActiveFilters = () => {
+    return selectedNeighborhoods.length > 0 ||
+      selectedFeatures.length > 0 ||
+      (rangeFilters && rangeFilters.some(filter => filter.low !== '' || filter.high !== '')) ||
+      sortBy !== 'newest';
+  };
+
+  const getSortDisplayText = (sortValue = null) => {
+    const sortValueToCheck = sortValue || sortBy;
+    const sortTexts = {
+      newest: 'جدیدترین',
+      oldest: 'قدیمی ترین',
+      most_viewed: 'پر بازدید ترین',
+    };
+    return sortTexts[sortValueToCheck] || 'مرتب‌سازی';
+  };
+
+  const availableFeatures = getFeaturesToUse();
+
+  return {
+    selectedCategory,
+    selectedNeighborhoods,
+    selectedFeatures,
+    rangeFilters,
+    sortBy,
+    filterModalVisible,
+    activeFilterSection,
+    setFilterModalVisible,
+    setActiveFilterSection,
+    getApiFilters,
+    applyFilters,
+    handleCategorySelect,
+    handleNeighborhoodToggle,
+    handleFeatureToggle,
+    handleRangeFilterChange,
+    handleSortChange,
+    handleResetAll,
+    hasActiveFilters,
+    getSortDisplayText,
+    availableFeatures,
+  };
+};

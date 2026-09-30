@@ -1,0 +1,185 @@
+import React, { useState, useEffect } from "react";
+import {
+  View,
+  StyleSheet,
+  ImageBackground,
+  Dimensions,
+  Keyboard,
+  TouchableWithoutFeedback
+} from 'react-native';
+import { Container, Input, Button, Text, Box, useToast } from 'native-base';
+import axios from 'axios';
+import Spinner from 'react-native-spinkit';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const Login = ({ navigation }) => {
+    const toast = useToast();
+    const [phone, setPhone] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+    const [isValidPhone, setIsValidPhone] = useState(false);
+
+    // Validate phone number format
+    useEffect(() => {
+        const iranMobileRegex = /^09[0-9]{9}$/;
+        setIsValidPhone(iranMobileRegex.test(phone));
+    }, [phone]);
+
+    const handlePhoneSubmit = async () => {
+        Keyboard.dismiss();
+        
+        if (!isValidPhone) {
+            showToast("فرمت شماره موبایل معتبر نیست (مثال: 09123456789)", "warning");
+            return;
+        }
+
+        try {
+            setIsLoading(true);
+            
+            // Save phone to storage
+            await AsyncStorage.setItem('cellphone', phone);
+
+            // API call to send verification code
+            const response = await axios.post('https://api.ajur.app/auth/register', {
+                phone: phone
+            });
+
+            if (response.data) {
+                showToast("کد تایید به شماره شما ارسال شد", "success");
+                navigation.navigate('Rvalidation', { phone: phone });
+            } else {
+                showToast("خطا در ارسال کد تایید", "error");
+            }
+        } catch (error) {
+            console.error("Verification error:", error);
+            showToast("خطا در ارتباط با سرور", "error");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const showToast = (message, type) => {
+        const colors = {
+            success: "green.700",
+            error: "red.700",
+            warning: "orange.700"
+        };
+        
+        toast.show({
+            render: () => (
+                <Box bg={colors[type]} px="15" py="3" rounded="md" mb={5}>
+                    <Text style={{color:'white', fontSize:16}}>{message}</Text>
+                </Box>
+            ),
+            placement: "top",
+            duration: 3000
+        });
+    };
+
+    return (
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.container}>
+                <ImageBackground 
+                    style={styles.loginBackground} 
+                    source={require('../assets/images/realstate-login.jpg')}
+                >
+                    <View style={styles.contentContainer}>
+                        <Box style={styles.formBox}>
+                            <Input 
+                                autoFocus={true}
+                                placeholder="شماره موبایل (مثال: 09123456789)"
+                                placeholderTextColor="#999"
+                                returnKeyType="done"
+                                keyboardType="phone-pad"
+                                maxLength={11}
+                                value={phone}
+                                onChangeText={setPhone}
+                                style={styles.formInput}
+                                onSubmitEditing={handlePhoneSubmit}
+                            />
+                        </Box>
+                        
+                        {isLoading ? (
+                            <View style={styles.spinnerView}>
+                                <Spinner isVisible={true} size={50} type='Circle' color='#494949'/>
+                            </View>
+                        ) : (
+                            <Button
+                                full
+                                style={[
+                                    styles.submitButton,
+                                    !isValidPhone && styles.disabledButton
+                                ]}
+                                onPress={handlePhoneSubmit}
+                                disabled={!isValidPhone || isLoading}
+                            >
+                                <Text style={styles.buttonText}>دریافت کد تایید</Text>
+                            </Button>
+                        )}
+                        
+                        <Text style={styles.instructionText}>
+                            کد تایید به شماره موبایل شما ارسال خواهد شد
+                        </Text>
+                    </View>
+                </ImageBackground>
+            </View>
+        </TouchableWithoutFeedback>
+    );
+};
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+    },
+    contentContainer: {
+        width: '100%',
+        alignItems: 'center',
+        paddingTop: 100,
+    },
+    loginBackground: {
+        width: Dimensions.get('window').width,
+        height: Dimensions.get('window').height,
+        justifyContent: 'flex-start',
+        alignItems: 'center',
+    },
+    formBox: {
+        width: '80%',
+        marginBottom: 20,
+    },
+    formInput: {
+        backgroundColor: 'white',
+        fontSize: 16,
+        textAlign: 'right',
+        padding: 10,
+        borderRadius: 8,
+    },
+    submitButton: {
+        width: '80%',
+        borderRadius: 8,
+        backgroundColor: '#FF8C00',
+        height: 50,
+        marginBottom: 15,
+    },
+    disabledButton: {
+        backgroundColor: '#CCCCCC',
+    },
+    buttonText: {
+        fontFamily: 'IRAN Sans',
+        fontSize: 16,
+    },
+    instructionText: {
+        color: 'white',
+        fontSize: 14,
+        textAlign: 'center',
+        marginTop: 10,
+        textShadowColor: 'rgba(0,0,0,0.5)',
+        textShadowRadius: 2,
+    },
+    spinnerView: {
+        height: 70,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginVertical: 10,
+    },
+});
+
+export default Login;

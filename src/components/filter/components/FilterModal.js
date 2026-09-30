@@ -1,0 +1,1477 @@
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Modal,
+  TouchableOpacity,
+  ScrollView,
+  TextInput,
+  Switch,
+  BackHandler,
+  PanResponder,
+  Dimensions,
+  Keyboard,
+  TouchableWithoutFeedback,
+} from 'react-native';
+import Icon from 'react-native-vector-icons/MaterialIcons';
+import { Picker } from '@react-native-picker/picker';
+import Slider from '@react-native-community/slider';
+import { formatNumberWithWords } from '../utils/formatters';
+
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+// ✅ تابع تبدیل عدد به حروف فارسی
+const numberToPersianWords = (num) => {
+  if (!num || num === '' || num === '0') return '';
+  
+  const number = parseInt(num);
+  if (isNaN(number) || number === 0) return '';
+  
+  const units = ['', 'هزار', 'میلیون', 'میلیارد', 'تریلیون'];
+  const ones = ['', 'یک', 'دو', 'سه', 'چهار', 'پنج', 'شش', 'هفت', 'هشت', 'نه'];
+  const tens = ['', 'ده', 'بیست', 'سی', 'چهل', 'پنجاه', 'شصت', 'هفتاد', 'هشتاد', 'نود'];
+  const teens = ['ده', 'یازده', 'دوازده', 'سیزده', 'چهارده', 'پانزده', 'شانزده', 'هفده', 'هجده', 'نوزده'];
+  const hundreds = ['', 'صد', 'دویست', 'سیصد', 'چهارصد', 'پانصد', 'ششصد', 'هفتصد', 'هشتصد', 'نهصد'];
+
+  const convertChunk = (chunk) => {
+    if (chunk === 0) return '';
+    
+    const result = [];
+    const hundred = Math.floor(chunk / 100);
+    const remainder = chunk % 100;
+    
+    if (hundred > 0) {
+      result.push(hundreds[hundred]);
+    }
+    
+    if (remainder > 0) {
+      if (remainder < 10) {
+        result.push(ones[remainder]);
+      } else if (remainder < 20) {
+        result.push(teens[remainder - 10]);
+      } else {
+        const ten = Math.floor(remainder / 10);
+        const one = remainder % 10;
+        if (one > 0) {
+          result.push(tens[ten] + ' و ' + ones[one]);
+        } else {
+          result.push(tens[ten]);
+        }
+      }
+    }
+    
+    return result.join(' و ');
+  };
+
+  const convertToWords = (num) => {
+    if (num === 0) return 'صفر';
+    
+    let result = [];
+    let chunkCount = 0;
+    let remaining = num;
+    
+    while (remaining > 0) {
+      const chunk = remaining % 1000;
+      if (chunk > 0) {
+        const chunkWords = convertChunk(chunk);
+        if (chunkWords) {
+          const unit = units[chunkCount];
+          result.push(chunkWords + (unit ? ' ' + unit : ''));
+        }
+      }
+      remaining = Math.floor(remaining / 1000);
+      chunkCount++;
+    }
+    
+    return result.reverse().join(' و ');
+  };
+
+  return convertToWords(number);
+};
+
+const FilterModal = ({
+  visible,
+  activeSection,
+  selectedCategory,
+  selectedNeighborhoods,
+  selectedFeatures,
+  rangeFilters,
+  sortBy,
+  availableCategories,
+  availableNeighborhoods = [],
+  onClose,
+  onSectionChange,
+  onCategorySelect,
+  onNeighborhoodToggle,
+  onFeatureToggle,
+  onRangeFilterChange,
+  onSortChange,
+  onResetAll,
+  getSortDisplayText,
+  filteredCount,
+  isLoading,
+  isCategoryLocked,
+  categoryFields = {},
+  loadingFields = false,
+  onFieldValueChange,
+  fieldValues = {},
+  features = [],
+  isSingleFieldMode = false,
+  singleField = null,
+  onFieldRemove = null,
+}) => {
+  const [localFieldValues, setLocalFieldValues] = useState({});
+  const [focusedInput, setFocusedInput] = useState({ slug: null, type: null });
+  const [modalOffset, setModalOffset] = useState(0);
+
+  // Sync field values when modal opens
+  useEffect(() => {
+    if (visible) {
+      if (isSingleFieldMode && singleField) {
+        const existingValue = fieldValues[singleField.slug];
+        const fieldType = singleField.type || '';
+        
+        if (fieldType === '2') {
+          const tickValue = Array.isArray(existingValue) ? existingValue : [];
+          setLocalFieldValues({
+            [singleField.slug]: tickValue
+          });
+        } 
+        else if (fieldType === '1') {
+          if (existingValue && typeof existingValue === 'object' && existingValue.min !== undefined) {
+            setLocalFieldValues({
+              [singleField.slug]: {
+                min: existingValue.min?.toString() || '',
+                max: existingValue.max?.toString() || '',
+              }
+            });
+          } else {
+            setLocalFieldValues({
+              [singleField.slug]: { min: '', max: '' }
+            });
+          }
+        }
+        else if (fieldType === '3') {
+          setLocalFieldValues({
+            [singleField.slug]: existingValue || ''
+          });
+        }
+        else {
+          setLocalFieldValues({
+            [singleField.slug]: existingValue || ''
+          });
+        }
+      } else {
+        setLocalFieldValues(fieldValues);
+      }
+      setModalOffset(0);
+    }
+  }, [visible, fieldValues, isSingleFieldMode, singleField]);
+
+  // Handle back button
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => {
+        if (visible && activeSection !== 'main' && !isSingleFieldMode) {
+          onSectionChange('main');
+          return true;
+        }
+        if (visible && isSingleFieldMode) {
+          onClose();
+          return true;
+        }
+        return false;
+      }
+    );
+
+    return () => backHandler.remove();
+  }, [visible, activeSection, onSectionChange, isSingleFieldMode, onClose]);
+
+  // ✅ IMPROVED: PanResponder for pull-down to close with better sensitivity
+  const panResponder = React.useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        // Only respond to vertical swipes
+        return Math.abs(gestureState.dy) > 5 && Math.abs(gestureState.dx) < 20;
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        if (gestureState.dy > 0) {
+          setModalOffset(gestureState.dy);
+        }
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        if (gestureState.dy > 80) {
+          if (isSingleFieldMode) {
+            onClose();
+          } else {
+            handleApplyAndClose();
+          }
+        } else {
+          setModalOffset(0);
+        }
+      },
+    })
+  ).current;
+
+  // Format number with commas
+  const formatNumber = (value) => {
+    if (!value) return '';
+    return value.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  };
+
+  // Unformat number
+  const unformatNumber = (text) => {
+    if (!text) return '';
+    const persianToEnglish = text.replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d).toString());
+    return persianToEnglish.replace(/,/g, '');
+  };
+
+  // Handle field range change
+  const handleFieldRangeChange = (fieldSlug, type, text, fieldName) => {
+    const numericValue = unformatNumber(text);
+    setLocalFieldValues(prev => {
+      const current = prev[fieldSlug] || { min: '', max: '' };
+      return {
+        ...prev,
+        [fieldSlug]: {
+          ...current,
+          [type]: numericValue
+        }
+      };
+    });
+  };
+
+  // Apply field changes when closing modal
+  const handleApplyAndClose = () => {
+    Object.entries(localFieldValues).forEach(([slug, value]) => {
+      if (JSON.stringify(value) !== JSON.stringify(fieldValues[slug])) {
+        const fieldConfig = [...(categoryFields.normal || []), ...(categoryFields.predefine || [])]
+          .find(f => f.slug === slug);
+
+        if (fieldConfig) {
+          const fieldName = fieldConfig.name || fieldConfig.value || fieldConfig.label || slug;
+          const fieldType = fieldConfig.type || '1';
+          if (fieldType === '1' && typeof value === 'object' && !Array.isArray(value)) {
+            onFieldValueChange(slug, value, 'normal_range', fieldName);
+          } else {
+            onFieldValueChange(slug, value, fieldType, fieldName);
+          }
+        }
+      }
+    });
+    onClose();
+  };
+
+  // Handle single field apply
+  const handleSingleFieldApply = () => {
+    if (singleField) {
+      const value = localFieldValues[singleField.slug];
+      console.log('📤 Applying single field:', singleField.slug, value);
+      const fieldType = singleField.type || '';
+      
+      let hasValue = false;
+      if (fieldType === '2') {
+        hasValue = Array.isArray(value) && value.length > 0;
+      } else if (typeof value === 'object') {
+        if (Array.isArray(value)) {
+          hasValue = value.length > 0;
+        } else {
+          hasValue = (value.min && value.min !== '' && value.min !== '0') || 
+                     (value.max && value.max !== '' && value.max !== '0');
+        }
+      } else {
+        hasValue = value && value !== '' && value !== '0';
+      }
+      
+      if (hasValue) {
+        const fieldName = singleField.name || singleField.value || singleField.slug;
+        onFieldValueChange(singleField.slug, value, fieldType, fieldName);
+      } else {
+        if (onFieldRemove) {
+          onFieldRemove(singleField.slug);
+        }
+      }
+      onClose();
+    }
+  };
+
+  // Dismiss keyboard
+  const dismissKeyboard = () => {
+    Keyboard.dismiss();
+    setFocusedInput({ slug: null, type: null });
+  };
+
+  // Handle close when touching outside
+  const handleOutsidePress = () => {
+    if (isSingleFieldMode) {
+      onClose();
+    } else if (activeSection === 'main') {
+      handleApplyAndClose();
+    } else {
+      onSectionChange('main');
+    }
+  };
+
+  // Render single field
+  const renderSingleField = () => {
+    if (!singleField) {
+      console.log('⚠️ No singleField provided');
+      return null;
+    }
+
+    const fieldType = singleField.type || '';
+    const fieldSlug = singleField.slug;
+    const fieldName = singleField.name || singleField.value || '';
+
+    console.log('📝 Rendering single field:', {
+      slug: fieldSlug,
+      type: fieldType,
+      hasOptions: singleField.options ? singleField.options.length : 0,
+      singleField
+    });
+
+    // ============================================
+    // 🔥 1. NORMAL FIELD (type: '1') - با دکمه X برای پاک کردن (سمت چپ)
+    // ============================================
+    if (fieldType === '1') {
+      const currentValue = localFieldValues[fieldSlug] || { min: '', max: '' };
+      const minValue = currentValue.min || '';
+      const maxValue = currentValue.max || '';
+      
+      const minWord = numberToPersianWords(minValue);
+      const maxWord = numberToPersianWords(maxValue);
+      
+      const displayMin = minValue ? formatNumber(minValue) : '';
+      const displayMax = maxValue ? formatNumber(maxValue) : '';
+
+      return (
+        <View style={styles.singleFieldWrapper}>
+          <Text style={styles.singleFieldTitle}>
+            {fieldName}
+            {singleField.unit ? ` (${singleField.unit})` : ''}
+          </Text>
+
+          <View style={styles.singleFieldRangeContainer}>
+            <View style={styles.singleFieldInputGroup}>
+              <View style={styles.inputWithClear}>
+                {maxValue && maxValue !== '' && maxValue !== '0' && (
+                  <TouchableOpacity 
+                    style={styles.clearButtonLeft}
+                    onPress={() => {
+                      setLocalFieldValues(prev => {
+                        const current = prev[fieldSlug] || { min: '', max: '' };
+                        return {
+                          ...prev,
+                          [fieldSlug]: {
+                            ...current,
+                            max: ''
+                          }
+                        };
+                      });
+                    }}
+                  >
+                    <Icon name="close" size={18} color="#999" />
+                  </TouchableOpacity>
+                )}
+                <TextInput
+                  style={[
+                    styles.singleFieldInput,
+                    maxValue && styles.singleFieldInputWithValue,
+                  ]}
+                  placeholder={'تا ' + fieldName}
+                  keyboardType="numeric"
+                  value={displayMax}
+                  onChangeText={(text) => {
+                    const rawText = text.replace(/,/g, '');
+                    const numericValue = unformatNumber(rawText);
+                    setLocalFieldValues(prev => {
+                      const current = prev[fieldSlug] || { min: '', max: '' };
+                      return {
+                        ...prev,
+                        [fieldSlug]: {
+                          ...current,
+                          max: numericValue
+                        }
+                      };
+                    });
+                  }}
+                  placeholderTextColor="#999"
+                />
+              </View>
+              {maxValue && maxValue !== '' && maxValue !== '0' && (
+                <Text style={styles.wordHelper}>
+                  {maxWord} {singleField.unit || ''}
+                </Text>
+              )}
+            </View>
+
+            <View style={styles.singleFieldInputGroup}>
+              <View style={styles.inputWithClear}>
+                {minValue && minValue !== '' && minValue !== '0' && (
+                  <TouchableOpacity 
+                    style={styles.clearButtonLeft}
+                    onPress={() => {
+                      setLocalFieldValues(prev => {
+                        const current = prev[fieldSlug] || { min: '', max: '' };
+                        return {
+                          ...prev,
+                          [fieldSlug]: {
+                            ...current,
+                            min: ''
+                          }
+                        };
+                      });
+                    }}
+                  >
+                    <Icon name="close" size={18} color="#999" />
+                  </TouchableOpacity>
+                )}
+                <TextInput
+                  style={[
+                    styles.singleFieldInput,
+                    minValue && styles.singleFieldInputWithValue,
+                  ]}
+                  placeholder={'از ' + fieldName}
+                  keyboardType="numeric"
+                  value={displayMin}
+                  onChangeText={(text) => {
+                    const rawText = text.replace(/,/g, '');
+                    const numericValue = unformatNumber(rawText);
+                    setLocalFieldValues(prev => {
+                      const current = prev[fieldSlug] || { min: '', max: '' };
+                      return {
+                        ...prev,
+                        [fieldSlug]: {
+                          ...current,
+                          min: numericValue
+                        }
+                      };
+                    });
+                  }}
+                  placeholderTextColor="#999"
+                />
+              </View>
+              {minValue && minValue !== '' && minValue !== '0' && (
+                <Text style={styles.wordHelper}>
+                  {minWord} {singleField.unit || ''}
+                </Text>
+              )}
+            </View>
+          </View>
+        </View>
+      );
+    }
+
+    // TICK FIELD (type: '2')
+    if (fieldType === '2') {
+      const options = singleField.options || [];
+      const fieldOptions = options.length > 0 ? options : [singleField];
+      const currentValue = localFieldValues[fieldSlug] || [];
+
+      return (
+        <View style={styles.singleFieldWrapper}>
+          <Text style={styles.singleFieldTitle}>{fieldName}</Text>
+          {fieldOptions.map((option, index) => {
+            const optionValue = option.value || option.id || option.name || option;
+            const isSelected = Array.isArray(currentValue) && currentValue.some(v => 
+              v === optionValue || v === option.value || v === option.id || v === option.name
+            );
+
+            return (
+              <TouchableOpacity
+                key={optionValue.toString() || index}
+                style={[
+                  styles.tickItem,
+                  isSelected && styles.tickItemSelected
+                ]}
+                onPress={() => {
+                  let newSelected;
+                  if (isSelected) {
+                    newSelected = currentValue.filter(v => 
+                      v !== optionValue && v !== option.value && v !== option.id && v !== option.name
+                    );
+                  } else {
+                    newSelected = [...currentValue, optionValue];
+                  }
+                  setLocalFieldValues(prev => ({
+                    ...prev,
+                    [fieldSlug]: newSelected
+                  }));
+                }}
+              >
+                <Text style={[
+                  styles.tickText,
+                  isSelected && styles.tickTextSelected
+                ]}>
+                  {option.label || option.name || option.value || option || `گزینه ${index + 1}`}
+                </Text>
+                <Switch
+                  value={isSelected}
+                  onValueChange={() => {
+                    let newSelected;
+                    if (isSelected) {
+                      newSelected = currentValue.filter(v => 
+                        v !== optionValue && v !== option.value && v !== option.id && v !== option.name
+                      );
+                    } else {
+                      newSelected = [...currentValue, optionValue];
+                    }
+                    setLocalFieldValues(prev => ({
+                      ...prev,
+                      [fieldSlug]: newSelected
+                    }));
+                  }}
+                  trackColor={{ false: '#767577', true: '#b92a31' }}
+                  thumbColor="#f4f3f4"
+                />
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      );
+    }
+
+    // PREDEFINE FIELD (type: '3')
+    if (fieldType === '3') {
+      const options = singleField.options || [];
+      const currentValue = localFieldValues[fieldSlug] || '';
+
+      return (
+        <View style={styles.singleFieldWrapper}>
+          <Text style={styles.singleFieldTitle}>{fieldName}</Text>
+          <View style={styles.predefineFieldSelect}>
+            <Picker
+              selectedValue={currentValue}
+              onValueChange={(itemValue) => {
+                setLocalFieldValues(prev => ({
+                  ...prev,
+                  [fieldSlug]: itemValue
+                }));
+              }}
+              style={styles.picker}
+            >
+              <Picker.Item label={`${fieldName} را انتخاب کنید`} value="" />
+              {options.map((option, index) => (
+                <Picker.Item
+                  key={option.value || option.id || index}
+                  label={option.label || option.value || option.name || `گزینه ${index + 1}`}
+                  value={option.value || option.id || option.name}
+                />
+              ))}
+            </Picker>
+          </View>
+        </View>
+      );
+    }
+
+    // FALLBACK
+    return (
+      <View style={styles.singleFieldWrapper}>
+        <Text style={styles.singleFieldTitle}>{fieldName}</Text>
+        <Text style={styles.singleFieldTitle}>نوع فیلد ناشناخته: {fieldType}</Text>
+      </View>
+    );
+  };
+
+  // Render Normal Fields
+  const renderNormalFields = () => {
+    if (loadingFields) {
+      return <Text style={styles.loadingText}>در حال بارگذاری فیلترها...</Text>;
+    }
+
+    const normalFields = categoryFields.normal || [];
+    if (normalFields.length === 0) return null;
+
+    return (
+      <View style={styles.fieldsSection}>
+        <Text style={styles.sectionTitle}>محدوده قیمت و مشخصات</Text>
+        {normalFields.map((field) => {
+          const currentValue = localFieldValues[field.slug] || { min: '', max: '' };
+          const minValue = currentValue.min || '';
+          const maxValue = currentValue.max || '';
+
+          return (
+            <View key={field.slug} style={styles.rangeFieldContainer}>
+              <Text style={styles.rangeFieldLabel}>
+                {field.name || field.value}
+                {field.unit ? ` (${field.unit})` : ''}
+              </Text>
+
+              <View style={styles.rangeInputsContainer}>
+                <View style={styles.rangeInputGroup}>
+                  <TextInput
+                    style={styles.rangeInput}
+                    placeholder={"تا " + field.name}
+                    value={maxValue}
+                    onChangeText={(text) => {
+                      handleFieldRangeChange(field.slug, 'max', text, field.name || field.value);
+                    }}
+                    keyboardType="numeric"
+                    autoComplete="off"
+                    placeholderTextColor="#999"
+                  />
+                </View>
+
+                <View style={styles.rangeInputGroup}>
+                  <TextInput
+                    style={styles.rangeInput}
+                    placeholder={"از " + field.name}
+                    value={minValue}
+                    onChangeText={(text) => {
+                      handleFieldRangeChange(field.slug, 'min', text, field.name || field.value);
+                    }}
+                    keyboardType="numeric"
+                    autoComplete="off"
+                    placeholderTextColor="#999"
+                  />
+                </View>
+              </View>
+            </View>
+          );
+        })}
+      </View>
+    );
+  };
+
+  // Render Predefine Fields
+  const renderPredefineFields = () => {
+    if (loadingFields) {
+      return <Text style={styles.loadingText}>در حال بارگذاری فیلترها...</Text>;
+    }
+
+    const predefineFields = categoryFields.predefine || [];
+    if (predefineFields.length === 0) return null;
+
+    return (
+      <View style={styles.fieldsSection}>
+        <Text style={styles.sectionTitle}>فیلترهای انتخابی</Text>
+        {predefineFields.map((field) => (
+          <View key={field.slug} style={styles.predefineFieldContainer}>
+            <Text style={styles.predefineFieldLabel}>
+              {field.name || field.value}
+            </Text>
+            <View style={styles.predefineFieldSelect}>
+              <Picker
+                selectedValue={localFieldValues[field.slug] || ''}
+                onValueChange={(itemValue) => {
+                  setLocalFieldValues(prev => ({
+                    ...prev,
+                    [field.slug]: itemValue
+                  }));
+                }}
+                style={styles.picker}
+              >
+                <Picker.Item label="انتخاب کنید" value="" />
+                {field.options?.map((option, index) => (
+                  <Picker.Item
+                    key={option.value || option.id || index}
+                    label={option.label || option.value || option.name || `گزینه ${index + 1}`}
+                    value={option.value || option.id || option.name}
+                  />
+                ))}
+              </Picker>
+            </View>
+          </View>
+        ))}
+      </View>
+    );
+  };
+
+  // Render Range Filters
+  const renderRangeFilters = () => {
+    if (!rangeFilters || !Array.isArray(rangeFilters)) return null;
+
+    return rangeFilters.map((filter) => (
+      <View key={filter.id} style={styles.rangeFilterContainer}>
+        <Text style={styles.rangeFilterLabel}>
+          {filter.name} {filter.unit ? `(${filter.unit})` : ''}
+        </Text>
+
+        <View style={styles.rangeValuesContainer}>
+          <TextInput
+            style={styles.rangeInput}
+            placeholder="حداقل"
+            value={filter.low || ''}
+            onChangeText={(text) => onRangeFilterChange(filter.id, 'low', text)}
+            keyboardType="numeric"
+            autoComplete="off"
+          />
+          <Text style={styles.rangeSeparator}>تا</Text>
+          <TextInput
+            style={styles.rangeInput}
+            placeholder="حداکثر"
+            value={filter.high || ''}
+            onChangeText={(text) => onRangeFilterChange(filter.id, 'high', text)}
+            keyboardType="numeric"
+            autoComplete="off"
+          />
+        </View>
+      </View>
+    ));
+  };
+
+  // Render neighborhoods
+  const renderNeighborhoods = () => {
+    if (!availableNeighborhoods || availableNeighborhoods.length === 0) {
+      return (
+        <View style={styles.emptyState}>
+          <Icon name="location-off" size={48} color="#ccc" />
+          <Text style={styles.emptyStateText}>
+            هیچ محله‌ای یافت نشد
+          </Text>
+        </View>
+      );
+    }
+
+    return availableNeighborhoods.map((neighborhood) => {
+      const isSelected = selectedNeighborhoods?.some(
+        n => n.id === neighborhood.id || n.value === neighborhood.id
+      );
+      
+      return (
+        <TouchableOpacity
+          key={neighborhood.id || neighborhood.value}
+          style={[
+            styles.neighborhoodItem,
+            isSelected && styles.selectedNeighborhoodItem
+          ]}
+          onPress={() => onNeighborhoodToggle(neighborhood)}
+        >
+          <Text style={[
+            styles.neighborhoodText,
+            isSelected && styles.selectedNeighborhoodText
+          ]}>
+            {neighborhood.name || neighborhood.label || neighborhood.title}
+          </Text>
+          <Switch
+            value={isSelected}
+            onValueChange={() => onNeighborhoodToggle(neighborhood)}
+            trackColor={{ false: '#767577', true: '#b92a31' }}
+            thumbColor="#f4f3f4"
+          />
+        </TouchableOpacity>
+      );
+    });
+  };
+
+  // Render main content based on active section
+  const renderContent = () => {
+    if (isSingleFieldMode && singleField) {
+      return (
+        <ScrollView 
+          style={[styles.scrollContainer, styles.scrollContainerSingle]}
+          contentContainerStyle={styles.scrollContentContainer}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.singleFieldContainer}>
+            {renderSingleField()}
+          </View>
+        </ScrollView>
+      );
+    }
+
+    const scrollViewProps = {
+      style: styles.scrollContainer,
+      contentContainerStyle: styles.scrollContentContainer,
+      keyboardShouldPersistTaps: "handled",
+      keyboardDismissMode: "on-drag",
+      showsVerticalScrollIndicator: false
+    };
+
+    if (activeSection === 'categories') {
+      return (
+        <ScrollView {...scrollViewProps}>
+          <Text style={styles.sectionHeader}>انتخاب دسته‌بندی</Text>
+          {availableCategories.map((category) => (
+            <TouchableOpacity
+              key={category.id}
+              style={[
+                styles.categoryItem,
+                selectedCategory?.id === category.id && styles.selectedCategoryItem
+              ]}
+              onPress={() => onCategorySelect(category)}
+              disabled={isCategoryLocked}
+            >
+              <Text style={[
+                styles.categoryText,
+                selectedCategory?.id === category.id && styles.selectedCategoryText
+              ]}>
+                {category.name || category.title}
+              </Text>
+              {selectedCategory?.id === category.id && (
+                <Icon name="check" size={20} color="#b92a31" />
+              )}
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      );
+    }
+
+    if (activeSection === 'features') {
+      return (
+        <ScrollView {...scrollViewProps}>
+          <Text style={styles.sectionHeader}>انتخاب امکانات</Text>
+          {features.map((feature) => (
+            <TouchableOpacity
+              key={feature.value}
+              style={[
+                styles.featureItem,
+                selectedFeatures?.some(f => f.value === feature.value) && styles.selectedFeatureItem
+              ]}
+              onPress={() => onFeatureToggle(feature)}
+            >
+              <Text style={styles.featureText}>{feature.value}</Text>
+              <Switch
+                value={selectedFeatures?.some(f => f.value === feature.value)}
+                onValueChange={() => onFeatureToggle(feature)}
+                trackColor={{ false: '#767577', true: '#b92a31' }}
+                thumbColor="#f4f3f4"
+              />
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      );
+    }
+
+    if (activeSection === 'sort') {
+      return (
+        <ScrollView {...scrollViewProps}>
+          <Text style={styles.sectionHeader}>مرتب‌سازی</Text>
+          {['newest', 'cheapest', 'most_expensive', 'nearest'].map((sortOption) => (
+            <TouchableOpacity
+              key={sortOption}
+              style={[
+                styles.sortItem,
+                sortBy === sortOption && styles.selectedSortItem
+              ]}
+              onPress={() => {
+                onSortChange(sortOption);
+                onSectionChange('main');
+              }}
+            >
+              <Text style={[
+                styles.sortText,
+                sortBy === sortOption && styles.selectedSortText
+              ]}>
+                {getSortDisplayText ? getSortDisplayText(sortOption) : sortOption}
+              </Text>
+              {sortBy === sortOption && (
+                <Icon name="check" size={20} color="#b92a31" />
+              )}
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      );
+    }
+
+    if (activeSection === 'neighborhoods') {
+      return (
+        <ScrollView {...scrollViewProps}>
+          <Text style={styles.sectionHeader}>انتخاب محله</Text>
+          {renderNeighborhoods()}
+        </ScrollView>
+      );
+    }
+
+    return (
+      <ScrollView {...scrollViewProps}>
+        <TouchableOpacity
+          style={styles.mainFilterItem}
+          onPress={() => onSectionChange('categories')}
+        >
+          <View style={styles.filterItemRight}>
+            <Icon name="chevron-left" size={24} color="#666" />
+            <Text style={styles.filterItemValue}>
+              {selectedCategory?.name || selectedCategory?.title || 'انتخاب نشده'}
+            </Text>
+          </View>
+          <View style={styles.filterItemContent}>
+            <Text style={styles.filterItemText}>دسته‌بندی</Text>
+            <Icon name="menu" size={24} color="#666" />
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.mainFilterItem}
+          onPress={() => onSectionChange('features')}
+        >
+          <View style={styles.filterItemRight}>
+            <Icon name="chevron-left" size={24} color="#666" />
+            <Text style={styles.filterItemValue}>
+              {selectedFeatures?.length > 0 ? `${selectedFeatures.length} مورد` : 'انتخاب نشده'}
+            </Text>
+          </View>
+          <View style={styles.filterItemContent}>
+            <Text style={styles.filterItemText}>امکانات</Text>
+            <Icon name="check-circle" size={24} color="#666" />
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.mainFilterItem}
+          onPress={() => onSectionChange('sort')}
+        >
+          <View style={styles.filterItemRight}>
+            <Icon name="chevron-left" size={24} color="#666" />
+            <Text style={styles.filterItemValue}>
+              {getSortDisplayText ? getSortDisplayText(sortBy) : 'جدیدترین'}
+            </Text>
+          </View>
+          <View style={styles.filterItemContent}>
+            <Text style={styles.filterItemText}>مرتب‌سازی</Text>
+            <Icon name="sort" size={24} color="#666" />
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.mainFilterItem}
+          onPress={() => onSectionChange('neighborhoods')}
+        >
+          <View style={styles.filterItemRight}>
+            <Icon name="chevron-left" size={24} color="#666" />
+            <Text style={styles.filterItemValue}>
+              {selectedNeighborhoods?.length > 0
+                ? `${selectedNeighborhoods.length} محله`
+                : 'انتخاب نشده'}
+            </Text>
+          </View>
+          <View style={styles.filterItemContent}>
+            <Text style={styles.filterItemText}>محله</Text>
+            <Icon name="place" size={24} color="#666" />
+          </View>
+        </TouchableOpacity>
+
+        {selectedCategory && (
+          <View style={styles.categoryFieldsContainer}>
+            {renderNormalFields()}
+            {renderPredefineFields()}
+          </View>
+        )}
+      </ScrollView>
+    );
+  };
+
+  const getModalTitle = () => {
+    if (isSingleFieldMode) {
+      return singleField?.name || singleField?.value || 'فیلتر';
+    }
+    if (activeSection === 'main') return 'فیلترها';
+    if (activeSection === 'categories') return 'دسته‌بندی';
+    if (activeSection === 'features') return 'امکانات';
+    if (activeSection === 'sort') return 'مرتب‌سازی';
+    if (activeSection === 'neighborhoods') return 'انتخاب محله';
+    return 'فیلترها';
+  };
+
+  return (
+    <Modal
+      animationType="slide"
+      transparent={true}
+      visible={visible}
+      onRequestClose={() => {
+        if (isSingleFieldMode) {
+          onClose();
+        } else if (activeSection === 'main') {
+          handleApplyAndClose();
+        } else {
+          onSectionChange('main');
+        }
+      }}
+    >
+      <TouchableWithoutFeedback onPress={handleOutsidePress}>
+        <View style={styles.modalContainer}>
+          <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+            <View
+              style={[
+                styles.modalContent,
+                isSingleFieldMode && styles.modalContentSingle,
+                { transform: [{ translateY: modalOffset }] }
+              ]}
+            >
+              {/* Grabber */}
+              <View style={styles.grabberContainer} {...panResponder.panHandlers}>
+                <View style={styles.grabber} />
+              </View>
+
+              {/* ✅ Updated Header with Back Button and Reset */}
+              <View style={styles.modalHeaderSimple}>
+                <TouchableOpacity 
+                  onPress={() => {
+                    if (isSingleFieldMode) {
+                      onClose();
+                    } else if (activeSection === 'main') {
+                      handleApplyAndClose();
+                    } else {
+                      onSectionChange('main');
+                    }
+                  }}
+                >
+                  <Icon name="arrow-back" size={24} color="#333" />
+                </TouchableOpacity>
+                
+                <Text style={styles.modalTitleSimple}>
+                  {getModalTitle()}
+                </Text>
+                
+                {!isSingleFieldMode && (
+                  <TouchableOpacity onPress={onResetAll}>
+                    <Text style={styles.resetTextSimple}>حذف همه</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {renderContent()}
+
+              <View style={styles.modalFooter}>
+                <TouchableOpacity
+                  style={[
+                    styles.applyButton,
+                    isLoading && styles.applyButtonDisabled
+                  ]}
+                  onPress={() => {
+                    if (isSingleFieldMode) {
+                      handleSingleFieldApply();
+                    } else if (activeSection === 'main') {
+                      handleApplyAndClose();
+                    } else {
+                      onSectionChange('main');
+                    }
+                  }}
+                  disabled={isLoading}
+                >
+                  <Text style={styles.applyButtonText}>
+                    {isLoading ? 'در حال جستجو...' : 
+                     isSingleFieldMode ? 'تایید' :
+                     `نمایش فایل ها`}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </View>
+      </TouchableWithoutFeedback>
+    </Modal>
+  );
+};
+
+const styles = StyleSheet.create({
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '95%',
+    minHeight: 200,
+  },
+  modalContentSingle: {
+    maxHeight: 350,
+    minHeight: 180,
+  },
+  grabberContainer: {
+    width: '100%',
+    alignItems: 'center',
+    paddingTop: 10,
+    paddingBottom: 2,
+  },
+  grabber: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#cccccc',
+    borderRadius: 3,
+  },
+  // ✅ Updated Header with Back Button and Reset
+  modalHeaderSimple: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  modalTitleSimple: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    fontFamily: 'iransans',
+    flex: 1,
+    textAlign: 'center',
+  },
+  resetTextSimple: {
+    color: '#b92a31',
+    fontSize: 14,
+    fontFamily: 'iransans',
+    fontWeight: '600',
+  },
+  scrollContainer: {
+    flex: 0,
+    maxHeight: '70%',
+  },
+  scrollContainerSingle: {
+    maxHeight: '50%',
+  },
+  scrollContentContainer: {
+    paddingBottom: 10,
+    paddingHorizontal: 16,
+  },
+  sectionHeader: {
+    fontSize: 16,
+    fontFamily: 'iransans',
+    fontWeight: 'bold',
+    color: '#333',
+    padding: 16,
+    backgroundColor: '#f8f9fa',
+    marginBottom: 8,
+  },
+  mainFilterItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  filterItemContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  filterItemText: {
+    fontSize: 16,
+    fontFamily: 'iransans',
+    color: '#333',
+    marginRight: 12,
+  },
+  filterItemRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  filterItemValue: {
+    fontSize: 14,
+    fontFamily: 'iransans',
+    color: '#666',
+    marginLeft: 8,
+  },
+  categoryItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  selectedCategoryItem: {
+    backgroundColor: '#f9f0f0',
+  },
+  categoryText: {
+    fontSize: 16,
+    fontFamily: 'iransans',
+    color: '#333',
+  },
+  selectedCategoryText: {
+    color: '#b92a31',
+    fontWeight: 'bold',
+  },
+  featureItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  selectedFeatureItem: {
+    backgroundColor: '#f9f0f0',
+  },
+  featureText: {
+    fontSize: 16,
+    fontFamily: 'iransans',
+    color: '#333',
+  },
+  sortItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  selectedSortItem: {
+    backgroundColor: '#f9f0f0',
+  },
+  sortText: {
+    fontSize: 16,
+    fontFamily: 'iransans',
+    color: '#333',
+  },
+  selectedSortText: {
+    color: '#b92a31',
+    fontWeight: 'bold',
+  },
+  categoryFieldsContainer: {
+    padding: 16,
+  },
+  fieldsSection: {
+    marginBottom: 24,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontFamily: 'iransans',
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+  },
+  loadingText: {
+    fontSize: 14,
+    fontFamily: 'iransans',
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 20,
+  },
+  rangeFieldContainer: {
+    marginBottom: 20,
+    padding: 3,
+    borderRadius: 8,
+  },
+  rangeFieldLabel: {
+    fontSize: 14,
+    fontFamily: 'iransans',
+    fontWeight: '600',
+    color: '#333',
+    marginRight: 7,
+    marginBottom: 7
+  },
+  rangeInputsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  rangeInputGroup: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 0,
+    padding: 5
+  },
+  rangeInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 6,
+    padding: 10,
+    fontSize: 14,
+    fontFamily: 'iransans',
+    backgroundColor: 'white',
+    textAlign: 'center',
+  },
+  predefineFieldContainer: {
+    marginBottom: 16,
+  },
+  predefineFieldLabel: {
+    fontSize: 14,
+    fontFamily: 'iransans',
+    color: '#333',
+    marginBottom: 8,
+  },
+  predefineFieldSelect: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  picker: {
+    height: 50,
+    width: '100%',
+  },
+  rangeFilterContainer: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  rangeFilterLabel: {
+    fontSize: 14,
+    fontFamily: 'iransans',
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+  },
+  rangeValuesContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  rangeSeparator: {
+    fontSize: 14,
+    fontFamily: 'iransans',
+    color: '#666',
+    marginHorizontal: 8,
+  },
+  modalFooter: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+  },
+  applyButton: {
+    backgroundColor: '#b92a31',
+    padding: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  applyButtonDisabled: {
+    backgroundColor: '#cccccc',
+    opacity: 0.7,
+  },
+  applyButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+    fontFamily: 'iransans',
+  },
+  neighborhoodItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  selectedNeighborhoodItem: {
+    backgroundColor: '#f9f0f0',
+  },
+  neighborhoodText: {
+    fontSize: 16,
+    fontFamily: 'iransans',
+    color: '#333',
+  },
+  selectedNeighborhoodText: {
+    color: '#b92a31',
+    fontWeight: 'bold',
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+  },
+  emptyStateText: {
+    fontSize: 14,
+    fontFamily: 'iransans',
+    color: '#999',
+    marginTop: 12,
+  },
+
+  // Single Field Styles
+  singleFieldContainer: {},
+  singleFieldWrapper: {
+    borderRadius: 12,
+    marginBottom: 2,
+  },
+  singleFieldTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+    fontFamily: 'iransans',
+    marginBottom: 10,
+    marginTop: 1,
+    textAlign: 'center',
+  },
+  singleFieldRangeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  singleFieldInputGroup: {
+    flex: 1,
+  },
+  inputWithClear: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    position: 'relative',
+  },
+  clearButtonLeft: {
+    position: 'absolute',
+    left: 8,
+    zIndex: 1,
+    padding: 4,
+  },
+  singleFieldInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 10,
+    paddingHorizontal: 35,
+    paddingVertical: 12,
+    margin: 2,
+    fontSize: 16,
+    fontFamily: 'iransans',
+    backgroundColor: 'white',
+    textAlign: 'center',
+  },
+  singleFieldInputWithValue: {
+    paddingLeft: 35,
+  },
+  singleFieldInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  singleFieldInputFull: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    fontFamily: 'iransans',
+    backgroundColor: 'white',
+    textAlign: 'center',
+  },
+  singleFieldUnit: {
+    fontSize: 14,
+    color: '#666',
+    fontFamily: 'iransans',
+    marginLeft: 12,
+  },
+  wordHelper: {
+    fontSize: 12,
+    color: '#888',
+    fontFamily: 'iransans',
+    marginTop: 2,
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+
+  // Tick Field Styles
+  tickItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  tickItemSelected: {
+    backgroundColor: '#f9f0f0',
+    borderRadius: 4,
+  },
+  tickText: {
+    fontSize: 16,
+    fontFamily: 'iransans',
+    color: '#333',
+  },
+  tickTextSelected: {
+    color: '#b92a31',
+    fontWeight: 'bold',
+  },
+});
+
+export default FilterModal;

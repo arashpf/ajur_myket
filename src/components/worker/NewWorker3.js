@@ -1,0 +1,764 @@
+import React, {useState, useEffect, useRef} from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Dimensions,
+  TouchableOpacity,
+  ScrollView,
+  TextInput,
+  ActivityIndicator,
+  FlatList,
+  Modal as RNModal,
+} from 'react-native';
+import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Icon from 'react-native-vector-icons/Ionicons';
+import { useToast, Box } from 'native-base';
+
+const { width, height } = Dimensions.get('window');
+
+const NewWorker3 = ({route, navigation}) => {
+    const toast = useToast();
+    const scrollViewRef = useRef(null);
+    
+    // Address form states
+    const [addressFormatted, set_addressFormatted] = useState('');
+    const [addressRegion, set_addressRegion] = useState('');
+    const [addressNeighbourhood, set_addressNeighbourhood] = useState('');
+    const [addressCity, set_addressCity] = useState('');
+    const [addressMunicipality_zone, set_addressMunicipality_zone] = useState('');
+    const [addressState, set_addressState] = useState('');
+    
+    // Data states
+    const [availableCities, set_availableCities] = useState([]);
+    const [filteredCities, setFilteredCities] = useState([]);
+    const [availableNeighborhoods, set_availableNeighborhoods] = useState([]);
+    const [filteredNeighborhoods, set_filteredNeighborhoods] = useState([]);
+    
+    // Modal states
+    const [cityModalVisible, setCityModalVisible] = useState(false);
+    const [neighborhoodModalVisible, setNeighborhoodModalVisible] = useState(false);
+    const [citySearchQuery, setCitySearchQuery] = useState('');
+    const [neighborhoodSearchQuery, setNeighborhoodSearchQuery] = useState('');
+    
+    // UI states
+    const [btn_status, set_btn_status] = useState(false);
+    const [errors, setErrors] = useState({
+        city: '',
+        neighborhood: '',
+        address: ''
+    });
+    const [isLoading, setIsLoading] = useState(true);
+
+    const { workerId } = route.params || {}; 
+
+    useEffect(() => {
+        loadAvailableLocations();
+    }, []);
+
+    const loadAvailableLocations = async () => {
+        setIsLoading(true);
+        try {
+            const response = await axios.get('https://api.ajur.app/api/all-available-locations');
+            const cities = response.data.cities || [];
+            set_availableCities(cities);
+            setFilteredCities(cities);
+            
+            const neighborhoods = response.data.neighborhoods || [];
+            set_availableNeighborhoods(neighborhoods);
+        } catch (error) {
+            console.error('Error loading locations:', error);
+            showToast('خطا در دریافت اطلاعات شهرها', 'error');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // Filter cities based on search query
+    useEffect(() => {
+        if (citySearchQuery.trim() === '') {
+            setFilteredCities(availableCities);
+        } else {
+            const filtered = availableCities.filter(city => 
+                city.title && city.title.toLowerCase().includes(citySearchQuery.toLowerCase())
+            );
+            setFilteredCities(filtered);
+        }
+    }, [citySearchQuery, availableCities]);
+
+    // Filter neighborhoods based on search query and selected city
+    useEffect(() => {
+        let filtered = [];
+        
+        if (addressCity && availableNeighborhoods.length > 0) {
+            filtered = availableNeighborhoods.filter(nb => 
+                nb.city_name === addressCity
+            );
+            
+            if (filtered.length === 0) {
+                filtered = [{ id: 'all-areas', name: 'همه مناطق', city_name: addressCity }];
+            }
+        }
+        
+        // Apply search filter on neighborhoods
+        if (neighborhoodSearchQuery.trim() !== '') {
+            filtered = filtered.filter(nb => 
+                nb.name && nb.name.toLowerCase().includes(neighborhoodSearchQuery.toLowerCase())
+            );
+        }
+        
+        set_filteredNeighborhoods(filtered);
+    }, [addressCity, availableNeighborhoods, neighborhoodSearchQuery]);
+
+    // Update formatted address when city or neighborhood changes
+    useEffect(() => {
+        updateFormattedAddress();
+    }, [addressCity, addressNeighbourhood]);
+
+    const updateFormattedAddress = () => {
+        let combined = '';
+        if (addressCity && addressNeighbourhood) {
+            combined = `${addressCity} ${addressNeighbourhood}`;
+        } else if (addressCity) {
+            combined = addressCity;
+        } else if (addressNeighbourhood) {
+            combined = addressNeighbourhood;
+        }
+        
+        if (combined !== addressFormatted && combined !== '') {
+            set_addressFormatted(combined);
+        }
+    };
+
+    const validateForm = () => {
+        const newErrors = {
+            city: '',
+            neighborhood: '',
+            address: ''
+        };
+        
+        if (!addressCity) {
+            newErrors.city = 'لطفا شهر را انتخاب کنید';
+        }
+        if (!addressNeighbourhood) {
+            newErrors.neighborhood = 'لطفا محله را انتخاب کنید';
+        }
+        if (!addressFormatted || addressFormatted.trim() === '') {
+            newErrors.address = 'لطفا آدرس کامل را وارد کنید';
+        }
+        
+        setErrors(newErrors);
+        
+        return !newErrors.city && !newErrors.neighborhood && !newErrors.address;
+    };
+
+    const clearFieldError = (field) => {
+        setErrors(prev => ({ ...prev, [field]: '' }));
+    };
+
+    const selectCity = (city) => {
+        set_addressCity(city.title);
+        set_addressNeighbourhood(''); // Reset neighborhood when city changes
+        setCityModalVisible(false);
+        setCitySearchQuery('');
+        clearFieldError('city');
+        clearFieldError('neighborhood');
+    };
+
+    const selectNeighborhood = (neighborhood) => {
+        set_addressNeighbourhood(neighborhood.name);
+        setNeighborhoodModalVisible(false);
+        setNeighborhoodSearchQuery('');
+        clearFieldError('neighborhood');
+    };
+
+    const newWorkerFinal = async () => {
+        if (!validateForm()) {
+            // Scroll to show errors
+            scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+            showToast('لطفا تمام فیلدهای الزامی را پر کنید', 'warning');
+            return;
+        }
+
+        set_btn_status(true);
+        
+        try {
+            const token = await AsyncStorage.getItem('id_token');
+            const response = await axios({
+                method: 'post',
+                url: 'https://api.ajur.app/api/post-model-location',
+                timeout: 1000 * 35,
+                params: {
+                    token: token,
+                    lat: 35.6995, // Azadi Tower default lat
+                    long: 51.3379, // Azadi Tower default long
+                    worker_id: workerId,
+                    region: addressRegion,
+                    neighbourhood: addressNeighbourhood,
+                    city: addressCity,
+                    municipality_zone: addressMunicipality_zone,
+                    state: addressState,
+                    formatted: addressFormatted
+                },
+            });
+
+            if(response.data.status == "200"){
+                showToast('آگهی شما با موفقیت ثبت شد', 'success');
+                navigation.popToTop();
+                navigation.navigate('RDashborad');
+            } else {
+                showToast('متاسفانه مشکلی رخ داده است', 'error');
+            }
+        } catch (e) {
+            console.error('API Error:', e);
+            showToast('خطا در ارتباط با سرور', 'error');
+        } finally {
+            set_btn_status(false);
+            
+
+            navigation.navigate('SingleUpgrade', { worker_id: workerId });
+        }
+    };
+
+    const showToast = (message, type = 'info') => {
+        const bgColor = type === 'success' ? 'green.500' : type === 'error' ? 'red.500' : 'orange.500';
+        toast.show({
+            render: () => {
+                return <Box bg={bgColor} px="15" py="3" rounded="md" mb={5}>
+                    <Text style={{color:'white',fontSize:16}}>{message}</Text>
+                </Box>;
+            }
+        });
+    };
+
+    // City Selection Modal
+    const renderCityModal = () => (
+        <RNModal
+            animationType="slide"
+            transparent={true}
+            visible={cityModalVisible}
+            onRequestClose={() => setCityModalVisible(false)}
+        >
+            <View style={styles.modalOverlay}>
+                <View style={styles.modalContainer}>
+                    <View style={styles.modalHeader}>
+                        <Text style={styles.modalTitle}>انتخاب شهر</Text>
+                        <TouchableOpacity onPress={() => setCityModalVisible(false)}>
+                            <Icon name="close" size={24} color="#666" />
+                        </TouchableOpacity>
+                    </View>
+                    
+                    <View style={styles.modalSearchWrapper}>
+                        <View style={styles.modalSearchInput}>
+                            <Icon name="search" size={20} color="#999" />
+                            <TextInput
+                                style={styles.modalSearchText}
+                                placeholder="جستجوی شهر..."
+                                placeholderTextColor="#999"
+                                value={citySearchQuery}
+                                onChangeText={setCitySearchQuery}
+                                textAlign="right"
+                            />
+                            {citySearchQuery.length > 0 && (
+                                <TouchableOpacity onPress={() => setCitySearchQuery('')}>
+                                    <Icon name="close-circle" size={20} color="#999" />
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    </View>
+                    
+                    <FlatList
+                        data={filteredCities}
+                        keyExtractor={(item) => item.id.toString()}
+                        renderItem={({ item }) => (
+                            <TouchableOpacity
+                                style={styles.modalItem}
+                                onPress={() => selectCity(item)}
+                            >
+                                <View style={styles.modalItemContent}>
+                                    <Icon name="location-outline" size={20} color="#4CAF50" />
+                                    <Text style={styles.modalItemText}>{item.title}</Text>
+                                </View>
+                                <Icon name="chevron-forward" size={20} color="#ccc" />
+                            </TouchableOpacity>
+                        )}
+                        showsVerticalScrollIndicator={true}
+                        ListEmptyComponent={
+                            <View style={styles.modalEmptyContainer}>
+                                <Icon name="search-outline" size={50} color="#ccc" />
+                                <Text style={styles.modalEmptyText}>شهری یافت نشد</Text>
+                            </View>
+                        }
+                    />
+                </View>
+            </View>
+        </RNModal>
+    );
+
+    // Neighborhood Selection Modal
+    const renderNeighborhoodModal = () => (
+        <RNModal
+            animationType="slide"
+            transparent={true}
+            visible={neighborhoodModalVisible}
+            onRequestClose={() => setNeighborhoodModalVisible(false)}
+        >
+            <View style={styles.modalOverlay}>
+                <View style={styles.modalContainer}>
+                    <View style={styles.modalHeader}>
+                        <Text style={styles.modalTitle}>انتخاب محله</Text>
+                        <TouchableOpacity onPress={() => setNeighborhoodModalVisible(false)}>
+                            <Icon name="close" size={24} color="#666" />
+                        </TouchableOpacity>
+                    </View>
+                    
+                    <View style={styles.modalSearchWrapper}>
+                        <View style={styles.modalSearchInput}>
+                            <Icon name="search" size={20} color="#999" />
+                            <TextInput
+                                style={styles.modalSearchText}
+                                placeholder="جستجوی محله..."
+                                placeholderTextColor="#999"
+                                value={neighborhoodSearchQuery}
+                                onChangeText={setNeighborhoodSearchQuery}
+                                textAlign="right"
+                            />
+                            {neighborhoodSearchQuery.length > 0 && (
+                                <TouchableOpacity onPress={() => setNeighborhoodSearchQuery('')}>
+                                    <Icon name="close-circle" size={20} color="#999" />
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    </View>
+                    
+                    {!addressCity ? (
+                        <View style={styles.modalWarningContainer}>
+                            <Icon name="warning" size={40} color="#FF9800" />
+                            <Text style={styles.modalWarningText}>لطفا ابتدا شهر را انتخاب کنید</Text>
+                        </View>
+                    ) : (
+                        <FlatList
+                            data={filteredNeighborhoods}
+                            keyExtractor={(item) => item.id.toString()}
+                            renderItem={({ item }) => (
+                                <TouchableOpacity
+                                    style={styles.modalItem}
+                                    onPress={() => selectNeighborhood(item)}
+                                >
+                                    <View style={styles.modalItemContent}>
+                                        <Icon name="navigate-outline" size={20} color="#2196F3" />
+                                        <Text style={styles.modalItemText}>{item.name}</Text>
+                                    </View>
+                                    <Icon name="chevron-forward" size={20} color="#ccc" />
+                                </TouchableOpacity>
+                            )}
+                            showsVerticalScrollIndicator={true}
+                            ListEmptyComponent={
+                                <View style={styles.modalEmptyContainer}>
+                                    <Icon name="search-outline" size={50} color="#ccc" />
+                                    <Text style={styles.modalEmptyText}>محله‌ای یافت نشد</Text>
+                                </View>
+                            }
+                        />
+                    )}
+                </View>
+            </View>
+        </RNModal>
+    );
+
+    const renderHeader = () => (
+        <View style={styles.header}>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                <Icon name="arrow-back" size={24} color="#333" />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>ثبت موقعیت ملک</Text>
+            <View style={{width: 40}} />
+        </View>
+    );
+
+    if (isLoading) {
+        return (
+            <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#4CAF50" />
+                <Text style={styles.loadingText}>در حال بارگذاری...</Text>
+            </View>
+        );
+    }
+
+    return (
+        <View style={styles.container}>
+            {renderHeader()}
+            
+            <ScrollView 
+                ref={scrollViewRef}
+                style={styles.scrollContent}
+                contentContainerStyle={styles.scrollContentContainer}
+                showsVerticalScrollIndicator={true}
+            >
+                <View style={styles.infoCard}>
+                    <Icon name="information-circle" size={28} color="#2196F3" />
+                    <Text style={styles.infoText}>
+                        لطفا شهر، محله و آدرس کامل ملک خود را وارد کنید
+                    </Text>
+                </View>
+
+                {/* City Selection - Modal Trigger */}
+                <View style={styles.formField}>
+                    <Text style={styles.label}>انتخاب شهر *</Text>
+                    <TouchableOpacity 
+                        style={[styles.selectionButton, errors.city && styles.selectionButtonError]}
+                        onPress={() => setCityModalVisible(true)}
+                    >
+                        <View style={styles.selectionButtonContent}>
+                            <Icon name="location" size={22} color="#4CAF50" />
+                            <Text style={[
+                                styles.selectionButtonText,
+                                !addressCity && styles.selectionButtonPlaceholder
+                            ]}>
+                                {addressCity || 'شهر را انتخاب کنید'}
+                            </Text>
+                        </View>
+                        <Icon name="chevron-down" size={22} color="#999" />
+                    </TouchableOpacity>
+                    {errors.city ? (
+                        <Text style={styles.errorText}>{errors.city}</Text>
+                    ) : null}
+                </View>
+
+                {/* Neighborhood Selection - Modal Trigger */}
+                <View style={styles.formField}>
+                    <Text style={styles.label}>انتخاب محله *</Text>
+                    <TouchableOpacity 
+                        style={[styles.selectionButton, errors.neighborhood && styles.selectionButtonError]}
+                        onPress={() => {
+                            if (!addressCity) {
+                                showToast('لطفا ابتدا شهر را انتخاب کنید', 'warning');
+                                return;
+                            }
+                            setNeighborhoodModalVisible(true);
+                        }}
+                    >
+                        <View style={styles.selectionButtonContent}>
+                            <Icon name="navigate" size={22} color="#2196F3" />
+                            <Text style={[
+                                styles.selectionButtonText,
+                                !addressNeighbourhood && styles.selectionButtonPlaceholder
+                            ]}>
+                                {addressNeighbourhood || 'محله را انتخاب کنید'}
+                            </Text>
+                        </View>
+                        <Icon name="chevron-down" size={22} color="#999" />
+                    </TouchableOpacity>
+                    {errors.neighborhood ? (
+                        <Text style={styles.errorText}>{errors.neighborhood}</Text>
+                    ) : null}
+                </View>
+
+                {/* Full Address - with auto-fill from city + neighborhood */}
+                <View style={styles.formField}>
+                    <Text style={styles.label}>آدرس کامل *</Text>
+                    <View style={styles.addressHint}>
+                        <Icon name="bulb-outline" size={16} color="#FF9800" />
+                        <Text style={styles.addressHintText}>
+                         آدرس قابل ویرایش است
+                        </Text>
+                    </View>
+                    <TextInput
+                        style={[styles.addressInput, errors.address && styles.addressInputError]}
+                        multiline
+                        numberOfLines={4}
+                        textAlignVertical="top"
+                        value={addressFormatted}
+                        onChangeText={(text) => {
+                            set_addressFormatted(text);
+                            clearFieldError('address');
+                        }}
+                        placeholder="آدرس کامل محل را وارد کنید..."
+                        placeholderTextColor="#999"
+                        textAlign="right"
+                    />
+                    {errors.address ? (
+                        <Text style={styles.errorText}>{errors.address}</Text>
+                    ) : null}
+                </View>
+                
+                <View style={styles.buttonContainer}>
+                    <TouchableOpacity 
+                        style={styles.submitButton}
+                        onPress={newWorkerFinal}
+                        disabled={btn_status}
+                    >
+                        {btn_status ? (
+                            <ActivityIndicator color="white" size="small" />
+                        ) : (
+                            <View style={styles.submitButtonContent}>
+                                <Icon name="send" size={20} color="white" />
+                                <Text style={styles.submitButtonText}>ثبت نهایی آگهی</Text>
+                            </View>
+                        )}
+                    </TouchableOpacity>
+                </View>
+                
+                <View style={styles.bottomPadding} />
+            </ScrollView>
+
+            {renderCityModal()}
+            {renderNeighborhoodModal()}
+        </View>
+    );
+};
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#f5f5f5',
+    },
+    header: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingHorizontal: 15,
+        paddingVertical: 15,
+        backgroundColor: 'white',
+        borderBottomWidth: 1,
+        borderBottomColor: '#e0e0e0',
+        elevation: 2,
+    },
+    backButton: {
+        padding: 8,
+    },
+    headerTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: '#333',
+        textAlign: 'center',
+    },
+    loadingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#f5f5f5',
+    },
+    loadingText: {
+        marginTop: 10,
+        fontSize: 16,
+        color: '#666',
+    },
+    scrollContent: {
+        flex: 1,
+    },
+    scrollContentContainer: {
+        padding: 20,
+    },
+    infoCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#E3F2FD',
+        padding: 15,
+        borderRadius: 12,
+        marginBottom: 20,
+        borderWidth: 1,
+        borderColor: '#BBDEFB',
+    },
+    infoText: {
+        flex: 1,
+        fontSize: 14,
+        color: '#1565C0',
+        textAlign: 'right',
+        marginRight: 10,
+        lineHeight: 20,
+    },
+    formField: {
+        marginBottom: 20,
+    },
+    label: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        marginBottom: 10,
+        textAlign: 'right',
+        color: '#333',
+    },
+    selectionButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        backgroundColor: 'white',
+        borderRadius: 12,
+        paddingHorizontal: 15,
+        paddingVertical: 14,
+        borderWidth: 1,
+        borderColor: '#e0e0e0',
+        elevation: 2,
+    },
+    selectionButtonError: {
+        borderColor: '#D32F2F',
+        borderWidth: 2,
+    },
+    selectionButtonContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1,
+    },
+    selectionButtonText: {
+        fontSize: 16,
+        color: '#333',
+        marginLeft: 10,
+        textAlign: 'right',
+    },
+    selectionButtonPlaceholder: {
+        color: '#999',
+    },
+    addressHint: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FFF3E0',
+        padding: 8,
+        borderRadius: 8,
+        marginBottom: 10,
+    },
+    addressHintText: {
+        fontSize: 12,
+        color: '#E65100',
+        marginRight: 6,
+        flex: 1,
+        textAlign: 'right',
+    },
+    addressInput: {
+        borderWidth: 1,
+        borderColor: '#e0e0e0',
+        borderRadius: 12,
+        padding: 15,
+        textAlign: 'right',
+        fontSize: 14,
+        backgroundColor: 'white',
+        minHeight: 100,
+        textAlignVertical: 'top',
+        color: '#333',
+    },
+    addressInputError: {
+        borderColor: '#D32F2F',
+        borderWidth: 2,
+    },
+    errorText: {
+        color: '#D32F2F',
+        fontSize: 12,
+        marginTop: 5,
+        textAlign: 'right',
+    },
+    buttonContainer: {
+        marginTop: 20,
+        marginBottom: 10,
+    },
+    submitButton: {
+        backgroundColor: '#4CAF50',
+        padding: 16,
+        borderRadius: 12,
+        alignItems: 'center',
+        elevation: 3,
+    },
+    submitButtonContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    submitButtonText: {
+        color: 'white',
+        fontSize: 16,
+        fontWeight: 'bold',
+        marginLeft: 10,
+    },
+    bottomPadding: {
+        height: 30,
+    },
+    // Modal Styles
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'flex-end',
+    },
+    modalContainer: {
+        backgroundColor: 'white',
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        maxHeight: height * 0.85,
+        minHeight: height * 0.5,
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: 20,
+        borderBottomWidth: 1,
+        borderBottomColor: '#f0f0f0',
+    },
+    modalTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: '#333',
+    },
+    modalSearchWrapper: {
+        padding: 15,
+        borderBottomWidth: 1,
+        borderBottomColor: '#f0f0f0',
+    },
+    modalSearchInput: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#f5f5f5',
+        borderRadius: 10,
+        paddingHorizontal: 15,
+        paddingVertical: 10,
+    },
+    modalSearchText: {
+        flex: 1,
+        fontSize: 16,
+        textAlign: 'right',
+        marginHorizontal: 10,
+        color: '#333',
+    },
+    modalItem: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: 15,
+        borderBottomWidth: 1,
+        borderBottomColor: '#f0f0f0',
+    },
+    modalItemContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1,
+    },
+    modalItemText: {
+        fontSize: 15,
+        color: '#333',
+        marginLeft: 12,
+        textAlign: 'right',
+        flex: 1,
+    },
+    modalEmptyContainer: {
+        padding: 40,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    modalEmptyText: {
+        marginTop: 10,
+        fontSize: 14,
+        color: '#999',
+        textAlign: 'center',
+    },
+    modalWarningContainer: {
+        padding: 40,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    modalWarningText: {
+        marginTop: 10,
+        fontSize: 14,
+        color: '#FF9800',
+        textAlign: 'center',
+    },
+});
+
+export default NewWorker3;

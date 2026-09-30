@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- پس‌زمینه یاقوتی آجر -->
+    <item android:drawable="@color/primary" />
+    
+    <!-- قرار گرفتن لوگو دقیقاً در مرکز با سایز کنترل‌شده و بدون کشیدگی -->
+    <item 
+        android:width="140dp"
+        android:height="140dp"
+        android:gravity="center">
+        <bitmap
+            android:src="@drawable/logo"
+            android:gravity="center" />
+    </item>
+</layer-list>

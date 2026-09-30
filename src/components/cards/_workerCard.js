@@ -1,0 +1,407 @@
+import React, {useState, useEffect, memo} from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Platform,
+} from 'react-native';
+import FastImage from 'react-native-fast-image';
+import Icon from 'react-native-vector-icons/MaterialIcons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {useNavigation} from '@react-navigation/native';
+import moment from 'moment';
+import 'moment/locale/fa'; //
+
+const WorkerCard = memo((props) => {
+  const worker = props.data;
+  const navigation = useNavigation();
+  const [properties, setProperties] = useState([]);
+  const [isFavorite, setIsFavorite] = useState(false);
+
+  // Parse worker properties
+  useEffect(() => {
+    try {
+      setProperties(JSON.parse(worker.json_properties));
+    } catch (error) {
+      console.error('Error parsing properties:', error);
+      setProperties([]);
+    }
+  }, [worker.json_properties]);
+
+  // Check favorite status
+  useEffect(() => {
+    const checkFavoriteStatus = async () => {
+      try {
+        const favorited = await AsyncStorage.getItem('favorited');
+        if (favorited) {
+          const favoriteList = JSON.parse(favorited);
+          setIsFavorite(favoriteList.includes(worker.id));
+        }
+      } catch (error) {
+        console.error('Favorite check error:', error);
+      }
+    };
+
+    checkFavoriteStatus();
+  }, [worker.id]);
+
+  // Toggle favorite status
+  const toggleFavorite = async () => {
+    try {
+      let favorited = await AsyncStorage.getItem('favorited');
+      let favoriteList = favorited ? JSON.parse(favorited) : [];
+      
+      const newFavoriteList = favoriteList.includes(worker.id)
+        ? favoriteList.filter(id => id !== worker.id)
+        : [...favoriteList, worker.id];
+      
+      await AsyncStorage.setItem('favorited', JSON.stringify(newFavoriteList));
+      setIsFavorite(!isFavorite);
+    } catch (error) {
+      console.error('Favorite toggle error:', error);
+    }
+  };
+
+  // Navigate to single worker view
+  const onCardPress = () => {
+    // navigation.navigate('WorkerSingle', {
+    //   itemId: worker.id,
+    // });
+
+    navigation.push('WorkerSingle', {
+      itemId: worker.id,
+    });
+
+    
+  };
+
+  // Render price information
+  // const renderPrice = () => {
+  //   const priceItem = properties.find(item => item.name === 'قیمت');
+  //   const pricePerM2 = properties.find(item => item.name === 'قیمت هر متر');
+    
+  //   if (!priceItem || !pricePerM2) return null;
+
+  //   return (
+  //     <Text style={styles.price}>
+  //       <Text style={styles.bold}>
+  //         {String(priceItem.value).replace(/(.)(?=(\d{3})+$)/g, '$1,')} تومان |{' '}
+  //       </Text>
+  //       <Text>متری </Text>
+  //       {String(pricePerM2.value).replace(/(.)(?=(\d{3})+$)/g, '$1,')} تومان
+  //     </Text>
+  //   );
+  // };
+
+  const renderPrice = () => {
+  const priceItem =
+    properties.find(item => item.name === 'قیمت') ||
+    properties.find(item => item.name === 'پول پیش');
+
+  const pricePerM2 =
+    properties.find(item => item.name === 'قیمت هر متر') ||
+    properties.find(item => item.name === 'اجاره ماهیانه');
+
+  if (!priceItem) return null;
+
+  // اگر حالت رهن کامل باشه
+  if (priceItem.name === 'پول پیش' && (!pricePerM2 || Number(pricePerM2.value) === 0)) {
+    return (
+      <Text style={styles.price}>
+        <Text style={styles.bold}>
+          {String(priceItem.value).replace(/(.)(?=(\d{3})+$)/g, '$1,')} تومان
+        </Text>{' '}
+        رهن کامل
+      </Text>
+    );
+  }
+
+  // حالت معمولی خرید یا رهن + اجاره
+  if (!pricePerM2) return null;
+
+  return (
+    <Text style={styles.price}>
+      <Text style={styles.bold}>
+        {String(priceItem.value).replace(/(.)(?=(\d{3})+$)/g, '$1,')} تومان |{' '}
+      </Text>
+      <Text>
+        {priceItem.name === 'قیمت' ? 'متری ' : 'اجاره '}
+      </Text>
+      {String(pricePerM2.value).replace(/(.)(?=(\d{3})+$)/g, '$1,')} تومان
+    </Text>
+  );
+};
+
+  // Render quick hint badges
+  const renderQuickHint = (pr) => {
+    if (pr.value == 1) {
+      return (
+        <View style={styles.quickHint}>
+          <Text style={styles.quickHintText}>{pr.name}</Text>
+          <Icon name="check" size={13} color="white" style={styles.checkIcon} />
+        </View>
+      );
+    }
+    return null;
+  };
+
+  const renderDistanceTime = () => {
+  // Set moment to Persian locale
+  moment.locale('fa');
+  
+  return (
+    <View style={styles.distanceTime}>
+      {/* Ensure all text is wrapped in Text components */}
+      {worker.distance ? (
+        <Text style={styles.distanceText}>
+          در فاصله {worker.distance} کیلومتری
+        </Text>
+      ) : null}
+      
+      <View style={styles.timeContainer}>
+        <Text style={styles.timeText}>
+          {moment(worker.updated_at).fromNow()}
+        </Text>
+        <Icon name="access-time" size={14} color="#444" style={styles.timeIcon} />
+      </View>
+    </View>
+  );
+};
+
+//   const renderDistanceTime = () => {
+//   // Set moment locale to Persian
+//   moment.locale('fa');
+  
+//   return (
+//     <View style={styles.distanceTime}>
+//       {worker.distance && (
+//         <Text style={styles.distanceText}>
+//           در فاصله {worker.distance} کیلومتری
+//         </Text>
+//       )}
+//       <View style={styles.timeContainer}>
+//         <Text style={styles.timeText}>
+//           {moment(worker.updated_at).fromNow()}
+//         </Text>
+//         <Icon name="access-time" size={14} color="#fff" style={styles.timeIcon} />
+//       </View>
+//     </View>
+//   );
+// };
+
+  // Render distance and time information
+  // const renderDistanceTime = () => {
+  //   return (
+  //     <View style={styles.distanceTime}>
+  //       {worker.distance && (
+  //         <Text style={styles.distanceText}>
+  //           در فاصله {worker.distance} کیلومتری
+  //         </Text>
+  //       )}
+  //       <View style={styles.timeContainer}>
+  //         <Text style={styles.timeText}>
+  //           {moment(worker.updated_at).fromNow()}
+  //         </Text>
+  //         <Icon name="access-time" size={14} color="#fff" style={styles.timeIcon} />
+  //       </View>
+  //     </View>
+  //   );
+  // };
+
+  return (
+    <TouchableOpacity 
+      activeOpacity={0.9}
+      style={styles.card}
+      onPress={onCardPress}
+    >
+      {/* Header Area */}
+      <View style={styles.header}>
+        
+        <TouchableOpacity 
+          onPress={toggleFavorite} 
+          style={styles.heartButton}
+          hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
+        >
+          <Icon
+            name={isFavorite ? 'favorite' : 'favorite-border'}
+            size={24}
+            color={isFavorite ? '#b92a31' : '#fff'}
+          />
+        </TouchableOpacity>
+        <Text style={styles.workerName}>{worker.name}</Text>
+      </View>
+
+      {/* Image */}
+      <FastImage
+        source={{uri: worker.thumb}}
+        style={styles.image}
+        resizeMode={FastImage.resizeMode.cover}
+        fallback={Platform.OS === 'android'}
+      />
+
+      {/* Info Overlay */}
+      <View style={styles.infoOverlay}>
+        {worker.neighbourhood && (
+          <Text style={styles.neighbourhood}>{worker.neighbourhood}</Text>
+        )}
+        {renderDistanceTime()}
+      </View>
+
+      {/* Quick Hints */}
+      <View style={styles.quickHintsContainer}>
+        {properties
+          .filter(pr => pr.special === '1' && pr.kind === 2)
+          .map((pr, index) => (
+            <View key={`hint-${index}`}>
+              {renderQuickHint(pr)}
+            </View>
+          ))}
+      </View>
+
+      {/* Footer */}
+      <View style={styles.footer}>
+        {renderPrice()}
+      </View>
+    </TouchableOpacity>
+  );
+});
+
+const styles = StyleSheet.create({
+  // card: {
+  //   backgroundColor: '#fff',
+  //   borderRadius: 12,
+  //   overflow: 'hidden',
+  //   marginBottom: 16,
+  //   elevation: 3,
+  //   shadowColor: '#000',
+  //   shadowOffset: { width: 0, height: 2 },
+  //   shadowOpacity: 0.1,
+  //   shadowRadius: 4,
+  // },
+
+  card: {
+  backgroundColor: '#fff',
+  borderRadius: 12,
+  overflow: 'hidden',
+  marginBottom: 16,
+  // Shadow
+  elevation: 3,
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 1 },
+  shadowOpacity: 0.08,  // Very subtle
+  shadowRadius: 10,  // Wide blur
+  marginHorizontal:20
+},
+
+  
+  header: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    right: 12,
+    zIndex: 2,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  workerName: {
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    color: '#fff',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    fontSize: 12,
+    fontFamily: 'iransans',
+  },
+  heartButton: {
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    borderRadius: 20,
+    padding: 4,
+  },
+  image: {
+    width: '100%',
+    height: 180,
+  },
+  infoOverlay: {
+    position: 'absolute',
+    bottom: 60,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  neighbourhood: {
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    color: '#222',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    fontSize: 14,
+    fontFamily: 'iransans',
+  },
+  distanceTime: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  distanceText: {
+    marginRight: 8,
+    fontSize: 12,
+  },
+  timeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  timeText: {
+    fontSize: 12,
+  },
+  timeIcon: {
+    marginLeft: 4,
+  },
+  quickHintsContainer: {
+    position: 'absolute',
+    top: 100,
+    left: 12,
+    right: 12,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  quickHint: {
+    backgroundColor: 'green',
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginRight: 4,
+    marginBottom: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  quickHintText: {
+    color: 'white',
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  checkIcon: {
+    marginLeft: 2,
+  },
+  footer: {
+    padding: 12,
+  },
+  price: {
+    fontSize: 15,
+    color: '#111',
+    textAlign: 'right',
+    fontFamily: 'iransans',
+  },
+  bold: {
+    fontWeight: 'bold',
+  },
+});
+
+export default WorkerCard;

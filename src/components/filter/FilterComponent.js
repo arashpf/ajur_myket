@@ -1,0 +1,982 @@
+import React, { useState, useEffect, forwardRef, useImperativeHandle, useRef } from 'react';
+import { View, StyleSheet, TouchableOpacity, Text, ToastAndroid } from 'react-native';
+import Icon from 'react-native-vector-icons/Ionicons';
+import FilterSlider from './components/FilterSlider';
+import FilterModal from './components/FilterModal';
+import { useServerFilterLogic } from './hooks/useServerFilterLogic';
+import { filterApi } from './services/filterApi';
+
+const FilterComponent = forwardRef(({ 
+  onFilteredDataChange,
+  onSpecialItemChange,
+  availableCategories = [],
+  availableNeighborhoods = [],
+  initialCategory = null,
+  userLocation = null,
+  forceCategory = null,
+  onBackToCategories = null,
+  categoryFields = {},
+  loadingFields = false,
+  onCategoryChange = null,
+  selectedCity = null,
+}, ref) => {
+  const [isLoading, setIsLoading] = useState(false);
+  const [serverData, setServerData] = useState([]);
+  const [specialItem, setSpecialItem] = useState(null);
+  const [pagination, setPagination] = useState({
+    current_page: 1,
+    total_pages: 0,
+    total_count: 0,
+    has_next: false
+  });
+
+  const [fieldValues, setFieldValues] = useState({});
+  const [activeFieldFilters, setActiveFieldFilters] = useState([]);
+  
+  // ✅ NEW: FieldModal state for single field editing
+  const [fieldModalVisible, setFieldModalVisible] = useState(false);
+  const [selectedField, setSelectedField] = useState(null);
+
+  // ✅ NEW: Request tracking to prevent race conditions
+  const requestIdRef = useRef(0);
+  const fieldValuesTimeoutRef = useRef(null);
+  const categoryTimeoutRef = useRef(null);
+  const neighborhoodTimeoutRef = useRef(null);
+
+  const getRandomSpecialItem = (workers) => {
+    if (!workers || workers.length === 0) return null;
+    const specialWorkers = workers.filter(worker => worker.is_special === true);
+    if (specialWorkers.length === 0) return null;
+    const randomIndex = Math.floor(Math.random() * specialWorkers.length);
+    return specialWorkers[randomIndex];
+  };
+
+  const findFieldNameBySlug = (slug, type) => {
+    const fields = {
+      normal: categoryFields.normal || [],
+      tick: categoryFields.tick || [],
+      predefine: categoryFields.predefine || []
+    }[type] || [];
+    
+    const field = fields.find(f => f.slug === slug);
+    return field?.name || field?.value || slug;
+  };
+
+  const findFieldUnitBySlug = (slug, type) => {
+    const fields = {
+      normal: categoryFields.normal || [],
+      tick: categoryFields.tick || [],
+      predefine: categoryFields.predefine || []
+    }[type] || [];
+    
+    const field = fields.find(f => f.slug === slug);
+    return field?.unit || '';
+  };
+
+  const {
+    selectedCategory,
+    selectedNeighborhoods,
+    selectedFeatures,
+    rangeFilters,
+    sortBy,
+    filterModalVisible,
+    activeFilterSection,
+    setFilterModalVisible,
+    setActiveFilterSection,
+    handleCategorySelect,
+    handleNeighborhoodToggle,
+    handleFeatureToggle,
+    handleRangeFilterChange,
+    handleResetAll,
+    handleSortChange,
+    getApiFilters,
+    applyFilters,
+    hasActiveFilters,
+    getSortDisplayText,
+    availableFeatures,
+  } = useServerFilterLogic(handleServerFilterChange, {
+    dynamicTickFields: categoryFields.tick || [],
+    initialCategory: initialCategory,
+    fieldValues: fieldValues,
+  });
+
+  const addCityToFilters = (filters) => {
+    if (selectedCity?.id) {
+      filters.city_id = selectedCity.id;
+    }
+    return filters;
+  };
+
+  const compileAllFilters = () => {
+    const baseFilters = getApiFilters ? getApiFilters() : {};
+    
+    const allFilters = {
+      ...baseFilters,
+      category_id: selectedCategory?.id || null,
+      city_id: selectedCity?.id || null,
+    };
+    
+    if (selectedFeatures && selectedFeatures.length > 0) {
+      allFilters.features = selectedFeatures.map(f => f.value).join(',');
+    }
+    
+    if (selectedNeighborhoods && selectedNeighborhoods.length > 0) {
+      const neighborhoodIds = selectedNeighborhoods.map(n => n.id).filter(id => id);
+      if (neighborhoodIds.length > 0) {
+        allFilters.neighborhoods = neighborhoodIds.join(',');
+        console.log('📍 Adding neighborhoods to API:', allFilters.neighborhoods);
+      }
+    }
+    
+    Object.entries(fieldValues).forEach(([fieldName, value]) => {
+      if (typeof value === 'object') {
+        if (value.min && value.min !== '' && value.min !== '0') {
+          allFilters[`${fieldName}_min`] = value.min;
+        }
+        if (value.max && value.max !== '' && value.max !== '0') {
+          allFilters[`${fieldName}_max`] = value.max;
+        }
+      } else if (value !== '' && value !== null && value !== undefined && value !== '0') {
+        allFilters[fieldName] = value;
+      }
+    });
+    
+    if (rangeFilters) {
+      Object.entries(rangeFilters).forEach(([filterName, filterValue]) => {
+        if (filterValue && (filterValue.low !== '' || filterValue.high !== '')) {
+          if (filterValue.low !== '') {
+            allFilters[`${filterName}_min`] = filterValue.low;
+          }
+          if (filterValue.high !== '') {
+            allFilters[`${filterName}_max`] = filterValue.high;
+          }
+        }
+      });
+    }
+    
+    if (sortBy && sortBy !== 'newest') {
+      allFilters.sort_by = sortBy;
+    }
+    
+    Object.keys(allFilters).forEach(key => {
+      if (allFilters[key] === null || 
+          allFilters[key] === undefined || 
+          allFilters[key] === '' ||
+          (Array.isArray(allFilters[key]) && allFilters[key].length === 0)) {
+        delete allFilters[key];
+      }
+    });
+    
+    if (userLocation?.lat && userLocation?.long) {
+      allFilters.lat = userLocation.lat;
+      allFilters.long = userLocation.long;
+    }
+    
+    console.log('📦 Final compiled filters:', allFilters);
+    return allFilters;
+  };
+
+  useImperativeHandle(ref, () => ({
+    refreshData: (page = 1) => {
+      console.log('🔄 FilterComponent refreshing data with current filters');
+      const currentFilters = compileAllFilters();
+      return handleServerFilterChange(currentFilters, page);
+    },
+    
+    getCurrentFilters: () => {
+      return compileAllFilters();
+    },
+    
+    getPagination: () => {
+      return pagination;
+    },
+    
+    loadMoreData: () => {
+      if (pagination.has_next && !isLoading) {
+        const currentFilters = compileAllFilters();
+        return handleServerFilterChange(currentFilters, pagination.current_page + 1);
+      }
+      return Promise.resolve();
+    },
+    
+    hasActiveFilters: hasActiveFilters,
+  
+    clearNeighborhoods: () => {
+      console.log('🗑️ Clearing all neighborhoods');
+      if (selectedNeighborhoods && selectedNeighborhoods.length > 0) {
+        const neighborhoodsToRemove = [...selectedNeighborhoods];
+        neighborhoodsToRemove.forEach(neigh => {
+          handleNeighborhoodToggle(neigh);
+        });
+        ToastAndroid.show('محله‌ها پاک شدند', ToastAndroid.SHORT);
+      }
+    },
+  
+    setSelectedNeighborhood: async (neighborhood) => {
+      console.log('📍 Setting selected neighborhood:', neighborhood);
+      
+      if (!neighborhood) {
+        console.log('⚠️ No neighborhood provided');
+        return false;
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      if (!availableNeighborhoods || availableNeighborhoods.length === 0) {
+        console.log('⚠️ No available neighborhoods yet, waiting...');
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      
+      const matchedNeighborhood = availableNeighborhoods.find(
+        n => n.id === neighborhood.id || n.name === neighborhood.name
+      );
+      
+      if (!matchedNeighborhood) {
+        console.log('⚠️ Neighborhood not found in availableNeighborhoods:', neighborhood.name);
+        return false;
+      }
+      
+      const isAlreadySelected = selectedNeighborhoods?.some(
+        n => n.id === matchedNeighborhood.id
+      );
+      
+      if (isAlreadySelected) {
+        console.log('Neighborhood already selected:', matchedNeighborhood.name);
+        return true;
+      }
+      
+      if (selectedNeighborhoods && selectedNeighborhoods.length > 0) {
+        console.log('Clearing existing neighborhoods:', selectedNeighborhoods.length);
+        const neighborhoodsToClear = [...selectedNeighborhoods];
+        for (const neigh of neighborhoodsToClear) {
+          handleNeighborhoodToggle(neigh);
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      console.log('Adding new neighborhood:', matchedNeighborhood.name);
+      handleNeighborhoodToggle(matchedNeighborhood);
+      ToastAndroid.show(`محله ${matchedNeighborhood.name} انتخاب شد`, ToastAndroid.SHORT);
+      
+      return true;
+    },
+  }));
+
+  // ✅ NEW: Handle field press - opens modal with single field
+  const handleFieldPress = (field) => {
+    console.log('📱 Field pressed:', field);
+    setSelectedField(field);
+    setFieldModalVisible(true);
+  };
+
+  // ✅ NEW: Handle field apply from single field modal
+  const handleFieldApplyFromModal = (slug, value, type, name) => {
+    console.log('✅ Applying field from modal:', slug, value);
+    
+    // ✅ For tick fields, value should be an array
+    setFieldValues(prev => ({ ...prev, [slug]: value }));
+    
+    // Check if value has content
+    let hasValue = false;
+    if (type === '2') {
+      // Tick field: check if array has values
+      hasValue = Array.isArray(value) && value.length > 0;
+    } else if (typeof value === 'object') {
+      hasValue = (value.min && value.min !== '' && value.min !== '0') || 
+                 (value.max && value.max !== '' && value.max !== '0');
+    } else {
+      hasValue = value && value !== '' && value !== '0';
+    }
+    
+    if (hasValue) {
+      setActiveFieldFilters(prev => {
+        const existingIndex = prev.findIndex(f => f.slug === slug);
+        const fieldObj = {
+          slug: slug,
+          name: name,
+          value: value,
+          type: type,
+          unit: findFieldUnitBySlug(slug, type),
+          isRange: typeof value === 'object' && !Array.isArray(value),
+          isTick: type === '2',
+        };
+        
+        if (existingIndex >= 0) {
+          const updated = [...prev];
+          updated[existingIndex] = fieldObj;
+          return updated;
+        } else {
+          return [...prev, fieldObj];
+        }
+      });
+    } else {
+      setActiveFieldFilters(prev => prev.filter(f => f.slug !== slug));
+    }
+    
+    // Trigger data refresh
+    if (userLocation?.lat && userLocation?.long) {
+      setTimeout(() => {
+        let filters = getApiFilters();
+        filters = addCityToFilters(filters);
+        handleServerFilterChange(filters, 1);
+      }, 100);
+    }
+  };
+
+  // ✅ NEW: Handle field remove from modal
+  const handleFieldRemoveFromModal = (slug) => {
+    console.log('🗑️ Removing field from modal:', slug);
+    setFieldValues(prev => {
+      const updated = { ...prev };
+      delete updated[slug];
+      return updated;
+    });
+    setActiveFieldFilters(prev => prev.filter(f => f.slug !== slug));
+    
+    if (userLocation?.lat && userLocation?.long) {
+      setTimeout(() => {
+        let filters = getApiFilters();
+        filters = addCityToFilters(filters);
+        handleServerFilterChange(filters, 1);
+      }, 100);
+    }
+  };
+
+  const handleFieldValueChange = (fieldSlug, value, fieldType, fieldName = '') => {
+    console.log('📝 دریافت فیلتر از مودال:', {
+      name: fieldName || fieldSlug,
+      value: value,
+      type: fieldType
+    });
+    
+    setFieldValues(prev => ({ 
+      ...prev, 
+      [fieldSlug]: value 
+    }));
+
+    const isRangeValue = fieldType === 'normal_range' || (typeof value === 'object' && (value.min !== undefined || value.max !== undefined));
+    
+    if (isRangeValue) {
+      const hasValue = (value.min && value.min !== '' && value.min !== '0') || 
+                       (value.max && value.max !== '' && value.max !== '0');
+      
+      if (hasValue) {
+        setActiveFieldFilters(prev => {
+          const existingIndex = prev.findIndex(f => f.slug === fieldSlug);
+          
+          let displayText = '';
+          if (value.min && value.min !== '' && value.min !== '0') {
+            displayText += `از ${value.min}`;
+          }
+          if (value.max && value.max !== '' && value.max !== '0') {
+            if (displayText) displayText += ' ';
+            displayText += `تا ${value.max}`;
+          }
+          
+          const fieldObj = {
+            slug: fieldSlug,
+            name: fieldName || findFieldNameBySlug(fieldSlug, fieldType),
+            value: value,
+            displayValue: displayText,
+            type: fieldType,
+            unit: findFieldUnitBySlug(fieldSlug, fieldType),
+            isRange: true
+          };
+          
+          if (existingIndex >= 0) {
+            const updated = [...prev];
+            updated[existingIndex] = fieldObj;
+            return updated;
+          } else {
+            return [...prev, fieldObj];
+          }
+        });
+      } else {
+        setActiveFieldFilters(prev => 
+          prev.filter(f => f.slug !== fieldSlug)
+        );
+      }
+    } 
+    else if (value !== '' && value !== null && value !== undefined && value !== '0') {
+      setActiveFieldFilters(prev => {
+        const existingIndex = prev.findIndex(f => f.slug === fieldSlug);
+        
+        if (existingIndex >= 0) {
+          const updated = [...prev];
+          updated[existingIndex] = { 
+            slug: fieldSlug, 
+            name: fieldName || findFieldNameBySlug(fieldSlug, fieldType),
+            value, 
+            type: fieldType,
+            unit: findFieldUnitBySlug(fieldSlug, fieldType),
+            isRange: false
+          };
+          return updated;
+        } else {
+          return [...prev, { 
+            slug: fieldSlug, 
+            name: fieldName || findFieldNameBySlug(fieldSlug, fieldType),
+            value, 
+            type: fieldType,
+            unit: findFieldUnitBySlug(fieldSlug, fieldType),
+            isRange: false
+          }];
+        }
+      });
+    } else {
+      setActiveFieldFilters(prev => 
+        prev.filter(f => f.slug !== fieldSlug)
+      );
+    }
+  };
+
+  const handleFieldFilterRemove = (fieldSlug) => {
+    console.log('🗑️ Removing field filter:', fieldSlug);
+    
+    const currentFieldValues = { ...fieldValues };
+    delete currentFieldValues[fieldSlug];
+    
+    setFieldValues(currentFieldValues);
+    setActiveFieldFilters(prev => 
+      prev.filter(f => f.slug !== fieldSlug)
+    );
+
+    if (userLocation?.lat && userLocation?.long) {
+      console.log('🔄 Refreshing data after removing field filter');
+      
+      let filters = getApiFilters();
+      filters = addCityToFilters(filters);
+      
+      Object.entries(currentFieldValues).forEach(([fieldName, value]) => {
+        if (typeof value === 'object') {
+          if (value.min && value.min !== '' && value.min !== '0') {
+            filters[`${fieldName}_min`] = value.min;
+          }
+          if (value.max && value.max !== '' && value.max !== '0') {
+            filters[`${fieldName}_max`] = value.max;
+          }
+        } else if (value !== '' && value !== null && value !== undefined && value !== '0') {
+          filters[fieldName] = value;
+        }
+      });
+      
+      if (rangeFilters && rangeFilters.length > 0) {
+        rangeFilters.forEach(filter => {
+          if (filter.low && filter.low !== '' && filter.low !== '0') {
+            filters[`${filter.id}_min`] = filter.low;
+          }
+          if (filter.high && filter.high !== '' && filter.high !== '0') {
+            filters[`${filter.id}_max`] = filter.high;
+          }
+        });
+      }
+      
+      if (sortBy && sortBy !== 'newest') {
+        filters.sort_by = sortBy;
+      }
+      
+      console.log('📤 Sending filters after removal:', filters);
+      
+      handleServerFilterChange(filters, 1);
+    }
+  };
+
+  const handleCategorySelectWithNotification = (category) => {
+    console.log('🔄 Category changing to:', category?.name || category?.title);
+    setFieldValues({});
+    setActiveFieldFilters([]);
+    handleCategorySelect(category);
+    if (onCategoryChange) onCategoryChange(category);
+  };
+
+  // ✅ FIXED: handleServerFilterChange with request tracking to prevent race conditions
+  const handleServerFilterChange = async (filters, page = 1) => {
+    // ✅ Increment request ID to track the latest request
+    const currentRequestId = ++requestIdRef.current;
+    
+    try {
+      setIsLoading(true);
+  
+      const allFilters = {
+        lat: userLocation?.lat,
+        long: userLocation?.long,
+        page: page,
+        per_page: 10,
+        ...filters,
+      };
+  
+      if (selectedCategory?.id) {
+        allFilters.category_id = selectedCategory.id;
+      }
+  
+      if (selectedCity?.id) {
+        allFilters.city_id = selectedCity.id;
+      }
+  
+      if (selectedNeighborhoods && selectedNeighborhoods.length > 0) {
+        const neighborhoodIds = selectedNeighborhoods.map(n => n.id).filter(id => id);
+        if (neighborhoodIds.length > 0) {
+          allFilters.neighborhoods = neighborhoodIds.join(',');
+          console.log('📍 In handleServerFilterChange - Adding neighborhoods:', allFilters.neighborhoods);
+        }
+      }
+  
+      Object.entries(fieldValues).forEach(([fieldName, value]) => {
+        if (typeof value === 'object') {
+          if (value.min && value.min !== '' && value.min !== '0') {
+            allFilters[`${fieldName}_min`] = value.min;
+          }
+          if (value.max && value.max !== '' && value.max !== '0') {
+            allFilters[`${fieldName}_max`] = value.max;
+          }
+        } else if (value !== '' && value !== null && value !== undefined && value !== '0') {
+          allFilters[fieldName] = value;
+        }
+      });
+
+      if (rangeFilters && rangeFilters.length > 0) {
+        rangeFilters.forEach(filter => {
+          if (filter.low && filter.low !== '' && filter.low !== '0') {
+            allFilters[`${filter.id}_min`] = filter.low;
+          }
+          if (filter.high && filter.high !== '' && filter.high !== '0') {
+            allFilters[`${filter.id}_max`] = filter.high;
+          }
+        });
+      }
+  
+      console.log('📤 ارسال فیلترها به سرور:', allFilters);
+
+      const response = await filterApi.getFilteredWorkers(allFilters);
+      
+      // ✅ Check if this is the latest request
+      if (currentRequestId !== requestIdRef.current) {
+        console.log('⏭️ Skipping stale request:', currentRequestId, 'Current:', requestIdRef.current);
+        return;
+      }
+      
+      const workersData = response.workers || [];
+
+      console.log('📥 پاسخ سرور:', {
+        count: workersData.length,
+        status: response.status,
+        message: response.message
+      });
+
+      if (page === 1) {
+        setServerData(workersData);
+        
+        const randomSpecial = getRandomSpecialItem(workersData);
+        setSpecialItem(randomSpecial);
+        
+        if (onSpecialItemChange) {
+          onSpecialItemChange(randomSpecial);
+        }
+      } else {
+        setServerData(prev => [...prev, ...workersData]);
+      }
+
+      const newPagination = {
+        current_page: page,
+        total_count: response.pagination?.total_count || workersData.length,
+        has_next: response.pagination?.has_next || false,
+        total_pages: response.pagination?.total_pages || 0,
+        per_page: response.pagination?.per_page || 10
+      };
+      
+      setPagination(newPagination);
+
+      const allData = page === 1 ? workersData : [...serverData, ...workersData];
+      onFilteredDataChange?.(allData, newPagination);
+
+      setIsLoading(false);
+      return { workers: workersData, pagination: newPagination };
+    } catch (error) {
+      console.error('Filter API error:', error);
+      setIsLoading(false);
+      onFilteredDataChange?.([], {
+        current_page: 1,
+        total_count: 0,
+        has_next: false,
+        total_pages: 0,
+        per_page: 10
+      });
+      throw error;
+    }
+  };
+
+  const openCategorySection = () => {
+    setActiveFilterSection('categories');
+    setFilterModalVisible(true);
+  };
+
+  const calculateActiveFiltersCount = () => {
+    let count = 0;
+    
+    if (selectedCategory) count += 1;
+    if (selectedNeighborhoods?.length) count += selectedNeighborhoods.length;
+    if (selectedFeatures?.length) count += selectedFeatures.length;
+    
+    Object.entries(fieldValues).forEach(([slug, value]) => { 
+      if (typeof value === 'object') {
+        if ((value.min && value.min !== '' && value.min !== '0') || 
+            (value.max && value.max !== '' && value.max !== '0')) {
+          count += 1;
+        }
+      } else if (value !== '' && value !== null && value !== undefined && value !== '0') {
+        count += 1;
+      }
+    });
+    
+    if (rangeFilters && rangeFilters.length > 0) {
+      rangeFilters.forEach(filter => {
+        if ((filter.low && filter.low !== '' && filter.low !== '0') || 
+            (filter.high && filter.high !== '' && filter.high !== '0')) {
+          count += 1;
+        }
+      });
+    }
+    
+    if (sortBy && sortBy !== 'newest') count += 1;
+    
+    return count;
+  };
+
+  // Load initial data
+  useEffect(() => {
+    if (userLocation?.lat && userLocation?.long) {
+      let initialFilters = getApiFilters();
+
+      if (initialCategory?.id) {
+        initialFilters.category_id = initialCategory.id;
+      }
+
+      initialFilters = addCityToFilters(initialFilters);
+      handleServerFilterChange(initialFilters, 1);
+    }
+  }, [userLocation?.lat, userLocation?.long]);
+
+  // When initialCategory changes
+  useEffect(() => {
+    if (initialCategory?.id) {
+      handleCategorySelect(initialCategory);
+
+      if (userLocation?.lat && userLocation?.long) {
+        let filters = getApiFilters();
+        filters.category_id = initialCategory.id;
+        filters = addCityToFilters(filters);
+        handleServerFilterChange(filters, 1);
+      }
+    }
+  }, [initialCategory]);
+
+  // When forceCategory changes
+  useEffect(() => {
+    if (forceCategory?.id) {
+      handleCategorySelect(forceCategory);
+    }
+  }, [forceCategory]);
+
+  // ✅ FIXED: When internal category changes - with timeout
+  useEffect(() => {
+    if (selectedCategory?.id) {
+      console.log('📂 Category changed to:', selectedCategory.name || selectedCategory.title);
+      setFieldValues({});
+      setActiveFieldFilters([]);
+      
+      // Clear any existing timeout
+      if (categoryTimeoutRef.current) {
+        clearTimeout(categoryTimeoutRef.current);
+      }
+      
+      categoryTimeoutRef.current = setTimeout(() => {
+        let filters = getApiFilters();
+        filters = addCityToFilters(filters);
+        handleServerFilterChange(filters, 1);
+      }, 100);
+    }
+    
+    return () => {
+      if (categoryTimeoutRef.current) {
+        clearTimeout(categoryTimeoutRef.current);
+      }
+    };
+  }, [selectedCategory]);
+
+  // ✅ FIXED: fieldValues effect with debouncing
+  useEffect(() => {
+    if (userLocation?.lat && userLocation?.long) {
+      console.log('🔄 فیلترهای فیلد تغییر کردند:', fieldValues);
+      
+      // Clear any existing timeout
+      if (fieldValuesTimeoutRef.current) {
+        clearTimeout(fieldValuesTimeoutRef.current);
+      }
+      
+      // Check if there are any actual values
+      const hasValues = Object.keys(fieldValues).some(key => {
+        const val = fieldValues[key];
+        if (typeof val === 'object') {
+          return (val.min && val.min !== '' && val.min !== '0') || 
+                 (val.max && val.max !== '' && val.max !== '0');
+        }
+        return val !== '' && val !== null && val !== undefined && val !== '0';
+      });
+      
+      // Always fetch when fieldValues changes (including clearing)
+      fieldValuesTimeoutRef.current = setTimeout(() => {
+        let filters = getApiFilters();
+        filters = addCityToFilters(filters);
+        
+        // Add field values to filters
+        Object.entries(fieldValues).forEach(([fieldName, value]) => {
+          if (typeof value === 'object') {
+            if (value.min && value.min !== '' && value.min !== '0') {
+              filters[`${fieldName}_min`] = value.min;
+            }
+            if (value.max && value.max !== '' && value.max !== '0') {
+              filters[`${fieldName}_max`] = value.max;
+            }
+          } else if (value !== '' && value !== null && value !== undefined && value !== '0') {
+            filters[fieldName] = value;
+          }
+        });
+        
+        handleServerFilterChange(filters, 1);
+      }, 300);
+    }
+    
+    return () => {
+      if (fieldValuesTimeoutRef.current) {
+        clearTimeout(fieldValuesTimeoutRef.current);
+      }
+    };
+  }, [fieldValues]);
+
+  // ✅ FIXED: Neighborhoods effect with debouncing
+  useEffect(() => {
+    if (userLocation?.lat && userLocation?.long && selectedNeighborhoods) {
+      console.log('🏘️ Neighborhoods changed:', selectedNeighborhoods.length);
+      
+      // Clear any existing timeout
+      if (neighborhoodTimeoutRef.current) {
+        clearTimeout(neighborhoodTimeoutRef.current);
+      }
+      
+      neighborhoodTimeoutRef.current = setTimeout(() => {
+        let filters = getApiFilters();
+        filters = addCityToFilters(filters);
+        handleServerFilterChange(filters, 1);
+      }, 200);
+    }
+    
+    return () => {
+      if (neighborhoodTimeoutRef.current) {
+        clearTimeout(neighborhoodTimeoutRef.current);
+      }
+    };
+  }, [selectedNeighborhoods]);
+
+  // Keep the JSON.stringify version as well
+  useEffect(() => {
+    if (selectedNeighborhoods && userLocation?.lat && userLocation?.long) {
+      console.log('🏘️ Neighborhoods changed (stringified), count:', selectedNeighborhoods.length);
+      if (selectedNeighborhoods.length > 0) {
+        console.log('Selected neighborhoods:', selectedNeighborhoods.map(n => n.name));
+      }
+      
+      // Clear any existing timeout
+      if (neighborhoodTimeoutRef.current) {
+        clearTimeout(neighborhoodTimeoutRef.current);
+      }
+      
+      neighborhoodTimeoutRef.current = setTimeout(() => {
+        let filters = getApiFilters();
+        filters = addCityToFilters(filters);
+        handleServerFilterChange(filters, 1);
+      }, 200);
+    }
+  }, [JSON.stringify(selectedNeighborhoods)]);
+
+  useEffect(() => {
+    if (availableNeighborhoods && availableNeighborhoods.length > 0) {
+      console.log('📍 Available neighborhoods loaded:', availableNeighborhoods.length, 
+                  availableNeighborhoods.map(n => n.name).join(', '));
+    }
+  }, [availableNeighborhoods]);
+
+  const handleApplyFilters = () => {
+    console.log('🟢 اعمال فیلترها و بستن مودال');
+    
+    setFilterModalVisible(false);
+    let filters = { ...getApiFilters() };
+    filters = addCityToFilters(filters);
+    handleServerFilterChange(filters, 1);
+  };
+
+  const handleModalClose = () => {
+    console.log('🟡 بستن مودال');
+    handleApplyFilters();
+  };
+
+  const handleReset = () => {
+    console.log('♻️ بازنشانی همه فیلترها');
+    
+    setServerData([]);
+    setSpecialItem(null);
+    setPagination({ current_page: 1, total_count: 0, has_next: false, total_pages: 0 });
+    setFieldValues({});
+    setActiveFieldFilters([]);
+    handleResetAll();
+    
+    if (onSpecialItemChange) {
+      onSpecialItemChange(null);
+    }
+  };
+
+  const handleCategoryRemove = () => {
+    if (!forceCategory) {
+      console.log('🗑️ حذف دسته‌بندی');
+      handleCategorySelect(null);
+      onCategoryChange?.(null);
+      setFieldValues({});
+      setActiveFieldFilters([]);
+      setServerData([]);
+      setSpecialItem(null);
+      setPagination({ current_page: 1, total_count: 0, has_next: false, total_pages: 0 });
+      
+      if (onSpecialItemChange) {
+        onSpecialItemChange(null);
+      }
+    }
+  };
+
+  return (
+    <View style={styles.container}>
+      {onBackToCategories && (
+        <TouchableOpacity style={styles.backToCategoriesButton} onPress={onBackToCategories}>
+          <Icon name="arrow-back" size={20} color="#b92a31" />
+          <Text style={styles.backToCategoriesText}>بازگشت به دسته‌بندی‌ها</Text>
+        </TouchableOpacity>
+      )}
+
+      <FilterSlider
+        selectedCategory={selectedCategory}
+        selectedNeighborhoods={selectedNeighborhoods}
+        selectedFeatures={selectedFeatures}
+        rangeFilters={rangeFilters}
+        sortBy={sortBy}
+        hasActiveFilters={hasActiveFilters}
+        onFilterModalOpen={() => setFilterModalVisible(true)}
+        onFilterModalOpenForCategory={openCategorySection}
+        onCategoryRemove={handleCategoryRemove}
+        onNeighborhoodRemove={handleNeighborhoodToggle}
+        onFeatureRemove={handleFeatureToggle}
+        onRangeFilterRemove={handleRangeFilterChange}
+        onSortRemove={() => handleSortChange('newest')}
+        onResetAll={handleReset}
+        getSortDisplayText={getSortDisplayText}
+        isCategoryLocked={!!forceCategory}
+        activeFiltersCount={calculateActiveFiltersCount()}
+        
+        fieldValues={fieldValues}
+        activeFieldFilters={activeFieldFilters}
+        onFieldFilterRemove={handleFieldFilterRemove}
+        categoryFields={categoryFields}
+        onFieldFilterPress={handleFieldPress}
+        onNeighborhoodPress={() => {
+          // ✅ باز کردن مودال با بخش محله
+          setActiveFilterSection('neighborhoods');
+          setFilterModalVisible(true);
+        }}
+      />
+
+      {/* Main FilterModal */}
+      <FilterModal
+        visible={filterModalVisible}
+        activeSection={activeFilterSection}
+        selectedCategory={selectedCategory}
+        selectedNeighborhoods={selectedNeighborhoods}
+        selectedFeatures={selectedFeatures}
+        rangeFilters={rangeFilters}
+        sortBy={sortBy}
+        availableCategories={availableCategories}
+        availableNeighborhoods={availableNeighborhoods}
+        onClose={handleModalClose}
+        onSectionChange={setActiveFilterSection}
+        onCategorySelect={handleCategorySelectWithNotification}
+        onNeighborhoodToggle={handleNeighborhoodToggle}
+        onFeatureToggle={handleFeatureToggle}
+        onRangeFilterChange={handleRangeFilterChange}
+        onSortChange={handleSortChange}
+        onResetAll={handleReset}
+        getSortDisplayText={getSortDisplayText}
+        filteredCount={pagination.total_count}
+        isLoading={isLoading}
+        isCategoryLocked={!!forceCategory}
+        categoryFields={categoryFields}
+        loadingFields={loadingFields}
+        onFieldValueChange={handleFieldValueChange}
+        fieldValues={fieldValues}
+        features={availableFeatures || []}
+        isSingleFieldMode={false}
+      />
+
+      {/* ✅ Single Field Modal */}
+      <FilterModal
+        visible={fieldModalVisible}
+        activeSection="fields"
+        selectedCategory={selectedCategory}
+        selectedNeighborhoods={selectedNeighborhoods}
+        selectedFeatures={selectedFeatures}
+        rangeFilters={rangeFilters}
+        sortBy={sortBy}
+        availableCategories={availableCategories}
+        availableNeighborhoods={availableNeighborhoods}
+        onClose={() => setFieldModalVisible(false)}
+        onSectionChange={() => {}}
+        onCategorySelect={() => {}}
+        onNeighborhoodToggle={() => {}}
+        onFeatureToggle={() => {}}
+        onRangeFilterChange={() => {}}
+        onSortChange={() => {}}
+        onResetAll={() => {}}
+        getSortDisplayText={getSortDisplayText}
+        filteredCount={pagination.total_count}
+        isLoading={isLoading}
+        isCategoryLocked={true}
+        categoryFields={categoryFields}
+        loadingFields={loadingFields}
+        onFieldValueChange={handleFieldApplyFromModal}
+        fieldValues={fieldValues}
+        features={availableFeatures || []}
+        isSingleFieldMode={true}
+        singleField={selectedField}
+        onFieldRemove={handleFieldRemoveFromModal}
+      />
+    </View>
+  );
+});
+
+const styles = StyleSheet.create({
+  container: { position: 'relative' },
+  backToCategoriesButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f8f9fa',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    marginBottom: 8,
+  },
+  backToCategoriesText: {
+    color: '#b92a31',
+    fontSize: 16,
+    fontFamily: 'iransans',
+    marginRight: 8,
+  },
+});
+
+export default FilterComponent;

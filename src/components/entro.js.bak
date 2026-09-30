@@ -1,0 +1,869 @@
+import * as React from 'react';
+import Icon from 'react-native-vector-icons/Ionicons';
+import AppIntroSlider from 'react-native-app-intro-slider';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Image,
+  Animated,
+  Easing,
+  TouchableOpacity
+} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const slides = [
+  {
+    key: 'one',
+    title: 'مشاور املاک هوشمند آجر',
+    text: 'آجر فراتر از یک آگهی',
+    image: require('../assets/intro/ajour-logo.png'),
+    backgroundColor: '#b92a31',
+    icon: 'home'
+  },
+  {
+    key: 'two',
+    title: 'تجربه ای شیرین از بازدید ملک',
+    text: 'بدون محدودیت در زمان و مکان بازدید کنید',
+    image: require('../assets/intro/virtual-tour.jpeg'),
+    backgroundColor: '#e89d4e',
+    icon: 'camera'
+  },
+  {
+    key: 'three',
+    title: 'سیستم فایلینگ حرفه ای املاک ',
+    text: 'دیگه وقتشه املاکتو دیجیتال کنی و هر جا روی هر پلتفرمی به تمامی فایل هات دسترسی داشته باشی و خیلی راحت بدون اینکه فایلات پاک بشه ، اونارو برا مشتریات بفرستی ',
+    image: require('../assets/intro/share.jpg'),
+    backgroundColor: '#b92a31',
+    icon: 'share'
+  },
+  {
+    key: 'four',
+    title: 'نقشه تعاملی',
+    text: 'وسعت یک کشور در دستان شما',
+    image: require('../assets/intro/phone-red.png'),
+    backgroundColor: '#b92a31',
+    icon: 'map'
+  },
+];
+
+const Entro = ({navigation}) => {
+  const fadeAnim = new Animated.Value(0);
+  const slideAnim = new Animated.Value(100);
+  const scaleAnim = new Animated.Value(0.8);
+
+  const animateIn = () => {
+    fadeAnim.setValue(0);
+    slideAnim.setValue(100);
+    scaleAnim.setValue(0.8);
+    
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 800,
+        easing: Easing.out(Easing.exp),
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        friction: 4,
+        useNativeDriver: true,
+      })
+    ]).start();
+  };
+
+  const StartApp = async () => {
+    await AsyncStorage.setItem('id_visitbefore', 'true');
+    navigation.reset({
+      index: 0,
+      routes: [{name: 'Base'}],
+    });
+  };
+
+  renderItem = ({item, index}) => {
+    animateIn();
+    
+    return (
+      <View style={[styles.slide, {backgroundColor: item.backgroundColor}]}>
+        <Animated.View 
+          style={[
+            styles.contentContainer,
+            {
+              opacity: fadeAnim,
+              transform: [
+                {translateY: slideAnim},
+                {scale: scaleAnim}
+              ]
+            }
+          ]}
+        >
+          <View style={styles.header}>
+            <Icon name={item.icon} size={40} color="white" style={styles.icon} />
+            <Text style={styles.title}>{item.title}</Text>
+          </View>
+          
+          <Text style={styles.text}>{item.text}</Text>
+          
+          <Animated.View style={[styles.imageContainer, {opacity: fadeAnim}]}>
+            <Image 
+              source={item.image} 
+              style={styles.image}
+              resizeMode="contain"
+            />
+          </Animated.View>
+
+          {index === slides.length - 1 && (
+            <TouchableOpacity
+              onPress={() => StartApp()}
+              style={styles.startButton}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.startButtonText}>شروع کنید</Text>
+              <Icon name="arrow-forward" size={20} color="white" />
+            </TouchableOpacity>
+          )}
+        </Animated.View>
+      </View>
+    );
+  };
+
+  onDone = () => {
+    StartApp();
+  };
+
+  return (
+    <AppIntroSlider
+      nextLabel="بعدی"
+      doneLabel="شروع"
+      renderItem={renderItem}
+      data={slides}
+      onDone={onDone}
+      activeDotStyle={styles.activeDot}
+      dotStyle={styles.dot}
+      renderNextButton={() => (
+        <View style={styles.button}>
+          <Text style={styles.buttonText}>بعدی</Text>
+        </View>
+      )}
+      renderDoneButton={() => (
+        <View style={styles.button}>
+          <Text style={styles.buttonText}>شروع</Text>
+        </View>
+      )}
+    />
+  );
+};
+
+const styles = StyleSheet.create({
+  slide: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  contentContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  header: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  icon: {
+    marginLeft: 10,
+  },
+  title: {
+    fontSize: 24,
+    color: 'white',
+    fontFamily: 'iransans-bold',
+    textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: {width: 1, height: 1},
+    textShadowRadius: 2,
+  },
+  text: {
+    color: 'white',
+    textAlign: 'center',
+    fontSize: 18,
+    fontFamily: 'iransans',
+    lineHeight: 28,
+    marginBottom: 30,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    padding: 15,
+    borderRadius: 10,
+  },
+  imageContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 40,
+  },
+  image: {
+    width: 300,
+    height: 300,
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+  },
+  startButton: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    borderRadius: 25,
+    borderWidth: 2,
+    borderColor: 'white',
+    marginTop: 20,
+  },
+  startButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontFamily: 'iransans-bold',
+    marginRight: 10,
+  },
+  button: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    padding: 10,
+    borderRadius: 20,
+    width: 80,
+    alignItems: 'center',
+  },
+  buttonText: {
+    color: 'white',
+    fontFamily: 'iransans',
+  },
+  dot: {
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginHorizontal: 4,
+  },
+  activeDot: {
+    backgroundColor: 'white',
+    width: 20,
+    height: 8,
+    borderRadius: 4,
+    marginHorizontal: 4,
+  },
+});
+
+export default Entro;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/////////// working notification acceess
+
+
+
+import * as React from 'react';
+import Icon from 'react-native-vector-icons/Ionicons';
+import AppIntroSlider from 'react-native-app-intro-slider';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Image,
+  Animated,
+  Easing,
+  TouchableOpacity,
+  PermissionsAndroid,
+  Platform,
+} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const slides = [
+  {
+    key: 'one',
+    title: 'مشاور املاک هوشمند آجر',
+    text: 'آجر فراتر از یک آگهی',
+    image: require('../assets/intro/ajour-logo.png'),
+    backgroundColor: '#b92a31',
+    icon: 'home',
+  },
+  {
+    key: 'two',
+    title: 'تجربه ای شیرین از بازدید ملک',
+    text: 'بدون محدودیت در زمان و مکان بازدید کنید',
+    image: require('../assets/intro/virtual-tour.jpeg'),
+    backgroundColor: '#e89d4e',
+    icon: 'camera',
+  },
+  {
+    key: 'three',
+    title: 'سیستم فایلینگ حرفه ای املاک ',
+    text: 'دیگه وقتشه املاکتو دیجیتال کنی و هر جا روی هر پلتفرمی به تمامی فایل هات دسترسی داشته باشی و خیلی راحت بدون اینکه فایلات پاک بشه ، اونارو برا مشتریات بفرستی ',
+    image: require('../assets/intro/share.jpg'),
+    backgroundColor: '#b92a31',
+    icon: 'share',
+  },
+  {
+    key: 'four',
+    title: 'نقشه تعاملی',
+    text: 'وسعت یک کشور در دستان شما',
+    image: require('../assets/intro/phone-red.png'),
+    backgroundColor: '#b92a31',
+    icon: 'map',
+  },
+];
+
+const ANDROID_POST_NOTIFICATIONS = 'android.permission.POST_NOTIFICATIONS';
+
+const Entro = ({navigation}) => {
+  const fadeAnim = new Animated.Value(0);
+  const slideAnim = new Animated.Value(100);
+  const scaleAnim = new Animated.Value(0.8);
+
+  const animateIn = () => {
+    fadeAnim.setValue(0);
+    slideAnim.setValue(100);
+    scaleAnim.setValue(0.8);
+
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 800,
+        easing: Easing.out(Easing.exp),
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        friction: 4,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const requestNotificationPermissionAndroid = async () => {
+    // Only needed on Android 13+ (API 33+)
+    if (!(Platform.OS === 'android' && Platform.Version >= 33)) return;
+
+    try {
+      // Check first (optional but cleaner)
+      const alreadyGranted = await PermissionsAndroid.check(
+        ANDROID_POST_NOTIFICATIONS,
+      );
+      if (alreadyGranted) return;
+
+      const result = await PermissionsAndroid.request(
+        ANDROID_POST_NOTIFICATIONS,
+        {
+          title: 'اجازه ارسال نوتیفیکیشن',
+          message:
+            'برای دریافت اطلاع رسانی های مهم، اجازه ارسال نوتیفیکیشن را فعال کنید.',
+          buttonPositive: 'اجازه می‌دهم',
+          buttonNegative: 'بعداً',
+        },
+      );
+
+      console.log('Notification permission result:', result);
+    } catch (e) {
+      console.log('Notification permission error:', e);
+    }
+  };
+
+  const StartApp = async () => {
+    await requestNotificationPermissionAndroid();
+
+    await AsyncStorage.setItem('id_visitbefore', 'true');
+    navigation.reset({
+      index: 0,
+      routes: [{name: 'Base'}],
+    });
+  };
+
+  const renderItem = ({item, index}) => {
+    animateIn();
+
+    return (
+      <View style={[styles.slide, {backgroundColor: item.backgroundColor}]}>
+        <Animated.View
+          style={[
+            styles.contentContainer,
+            {
+              opacity: fadeAnim,
+              transform: [{translateY: slideAnim}, {scale: scaleAnim}],
+            },
+          ]}>
+          <View style={styles.header}>
+            <Icon name={item.icon} size={40} color="white" style={styles.icon} />
+            <Text style={styles.title}>{item.title}</Text>
+          </View>
+
+          <Text style={styles.text}>{item.text}</Text>
+
+          <Animated.View style={[styles.imageContainer, {opacity: fadeAnim}]}>
+            <Image source={item.image} style={styles.image} resizeMode="contain" />
+          </Animated.View>
+
+          {index === slides.length - 1 && (
+            <TouchableOpacity
+              onPress={StartApp}
+              style={styles.startButton}
+              activeOpacity={0.7}>
+              <Text style={styles.startButtonText}>شروع کنید</Text>
+              <Icon name="arrow-forward" size={20} color="white" />
+            </TouchableOpacity>
+          )}
+        </Animated.View>
+      </View>
+    );
+  };
+
+  const onDone = () => {
+    StartApp();
+  };
+
+  return (
+    <AppIntroSlider
+      nextLabel="بعدی"
+      doneLabel="شروع"
+      renderItem={renderItem}
+      data={slides}
+      onDone={onDone}
+      activeDotStyle={styles.activeDot}
+      dotStyle={styles.dot}
+      renderNextButton={() => (
+        <View style={styles.button}>
+          <Text style={styles.buttonText}>بعدی</Text>
+        </View>
+      )}
+      renderDoneButton={() => (
+        <View style={styles.button}>
+          <Text style={styles.buttonText}>شروع</Text>
+        </View>
+      )}
+    />
+  );
+};
+
+const styles = StyleSheet.create({
+  slide: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  contentContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  header: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  icon: {
+    marginLeft: 10,
+  },
+  title: {
+    fontSize: 24,
+    color: 'white',
+    fontFamily: 'iransans-bold',
+    textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: {width: 1, height: 1},
+    textShadowRadius: 2,
+  },
+  text: {
+    color: 'white',
+    textAlign: 'center',
+    fontSize: 18,
+    fontFamily: 'iransans',
+    lineHeight: 28,
+    marginBottom: 30,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    padding: 15,
+    borderRadius: 10,
+  },
+  imageContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 40,
+  },
+  image: {
+    width: 300,
+    height: 300,
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 5},
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+  },
+  startButton: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    borderRadius: 25,
+    borderWidth: 2,
+    borderColor: 'white',
+    marginTop: 20,
+  },
+  startButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontFamily: 'iransans-bold',
+    marginRight: 10,
+  },
+  button: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    padding: 10,
+    borderRadius: 20,
+    width: 80,
+    alignItems: 'center',
+  },
+  buttonText: {
+    color: 'white',
+    fontFamily: 'iransans',
+  },
+  dot: {
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginHorizontal: 4,
+  },
+  activeDot: {
+    backgroundColor: 'white',
+    width: 20,
+    height: 8,
+    borderRadius: 4,
+    marginHorizontal: 4,
+  },
+});
+
+export default Entro;
+
+
+
+
+
+///// before new ui and text and motto /////////////
+
+
+
+import * as React from 'react';
+import Icon from 'react-native-vector-icons/Ionicons';
+import AppIntroSlider from 'react-native-app-intro-slider';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Image,
+  Animated,
+  Easing,
+  TouchableOpacity,
+  PermissionsAndroid,
+  Platform,
+} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const slides = [
+  {
+    key: 'one',
+    title: 'مشاور املاک هوشمند آجر',
+    text: 'آجر فراتر از یک آگهی',
+    image: require('../assets/intro/ajour-logo.png'),
+    backgroundColor: '#b92a31',
+    icon: 'home',
+  },
+  {
+    key: 'two',
+    title: 'تجربه ای شیرین از بازدید ملک',
+    text: 'بدون محدودیت در زمان و مکان بازدید کنید',
+    image: require('../assets/intro/virtual-tour.jpeg'),
+    backgroundColor: '#e89d4e',
+    icon: 'camera',
+  },
+  {
+    key: 'three',
+    title: 'سیستم فایلینگ حرفه ای املاک ',
+    text: 'دیگه وقتشه املاکتو دیجیتال کنی و هر جا روی هر پلتفرمی به تمامی فایل هات دسترسی داشته باشی و خیلی راحت بدون اینکه فایلات پاک بشه ، اونارو برا مشتریات بفرستی ',
+    image: require('../assets/intro/share.jpg'),
+    backgroundColor: '#b92a31',
+    icon: 'share',
+  },
+  {
+    key: 'four',
+    title: 'نقشه تعاملی',
+    text: 'وسعت یک کشور در دستان شما',
+    image: require('../assets/intro/phone-red.png'),
+    backgroundColor: '#b92a31',
+    icon: 'map',
+  },
+];
+
+const ANDROID_POST_NOTIFICATIONS = 'android.permission.POST_NOTIFICATIONS';
+
+const Entro = ({navigation}) => {
+  const fadeAnim = new Animated.Value(0);
+  const slideAnim = new Animated.Value(100);
+  const scaleAnim = new Animated.Value(0.8);
+
+  const animateIn = () => {
+    fadeAnim.setValue(0);
+    slideAnim.setValue(100);
+    scaleAnim.setValue(0.8);
+
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 800,
+        easing: Easing.out(Easing.exp),
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        friction: 4,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const requestNotificationPermissionAndroid = async () => {
+    // Only needed on Android 13+ (API 33+)
+    if (!(Platform.OS === 'android' && Platform.Version >= 33)) return;
+
+    try {
+      const alreadyGranted = await PermissionsAndroid.check(
+        ANDROID_POST_NOTIFICATIONS,
+      );
+      if (alreadyGranted) return;
+
+      const result = await PermissionsAndroid.request(
+        ANDROID_POST_NOTIFICATIONS,
+        {
+          // Option 3 (real-estate focused)
+          title: 'اعلان‌های آجر',
+          message:
+            'برای اطلاع از فایل‌های جدید، پیام‌های مشتری و وضعیت بازدیدها، لطفاً اجازه ارسال اعلان را فعال کنید.',
+          buttonPositive: 'فعال‌سازی',
+          buttonNegative: 'فعلاً نه',
+        },
+      );
+
+      console.log('Notification permission result:', result);
+    } catch (e) {
+      console.log('Notification permission error:', e);
+    }
+  };
+
+  const StartApp = async () => {
+    await requestNotificationPermissionAndroid();
+
+    await AsyncStorage.setItem('id_visitbefore', 'true');
+    navigation.reset({
+      index: 0,
+      routes: [{name: 'Base'}],
+    });
+  };
+
+  const renderItem = ({item, index}) => {
+    animateIn();
+
+    return (
+      <View style={[styles.slide, {backgroundColor: item.backgroundColor}]}>
+        <Animated.View
+          style={[
+            styles.contentContainer,
+            {
+              opacity: fadeAnim,
+              transform: [{translateY: slideAnim}, {scale: scaleAnim}],
+            },
+          ]}>
+          <View style={styles.header}>
+            <Icon name={item.icon} size={40} color="white" style={styles.icon} />
+            <Text style={styles.title}>{item.title}</Text>
+          </View>
+
+          <Text style={styles.text}>{item.text}</Text>
+
+          <Animated.View style={[styles.imageContainer, {opacity: fadeAnim}]}>
+            <Image
+              source={item.image}
+              style={styles.image}
+              resizeMode="contain"
+            />
+          </Animated.View>
+
+          {index === slides.length - 1 && (
+            <TouchableOpacity
+              onPress={StartApp}
+              style={styles.startButton}
+              activeOpacity={0.7}>
+              <Text style={styles.startButtonText}>شروع کنید</Text>
+              <Icon name="arrow-forward" size={20} color="white" />
+            </TouchableOpacity>
+          )}
+        </Animated.View>
+      </View>
+    );
+  };
+
+  const onDone = () => {
+    StartApp();
+  };
+
+  return (
+    <AppIntroSlider
+      nextLabel="بعدی"
+      doneLabel="شروع"
+      renderItem={renderItem}
+      data={slides}
+      onDone={onDone}
+      activeDotStyle={styles.activeDot}
+      dotStyle={styles.dot}
+      renderNextButton={() => (
+        <View style={styles.button}>
+          <Text style={styles.buttonText}>بعدی</Text>
+        </View>
+      )}
+      renderDoneButton={() => (
+        <View style={styles.button}>
+          <Text style={styles.buttonText}>شروع</Text>
+        </View>
+      )}
+    />
+  );
+};
+
+const styles = StyleSheet.create({
+  slide: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  contentContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  header: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  icon: {
+    marginLeft: 10,
+  },
+  title: {
+    fontSize: 24,
+    color: 'white',
+    fontFamily: 'iransans-bold',
+    textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: {width: 1, height: 1},
+    textShadowRadius: 2,
+  },
+  text: {
+    color: 'white',
+    textAlign: 'center',
+    fontSize: 18,
+    fontFamily: 'iransans',
+    lineHeight: 28,
+    marginBottom: 30,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    padding: 15,
+    borderRadius: 10,
+  },
+  imageContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 40,
+  },
+  image: {
+    width: 300,
+    height: 300,
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 5},
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+  },
+  startButton: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    borderRadius: 25,
+    borderWidth: 2,
+    borderColor: 'white',
+    marginTop: 20,
+  },
+  startButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontFamily: 'iransans-bold',
+    marginRight: 10,
+  },
+  button: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    padding: 10,
+    borderRadius: 20,
+    width: 80,
+    alignItems: 'center',
+  },
+  buttonText: {
+    color: 'white',
+    fontFamily: 'iransans',
+  },
+  dot: {
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginHorizontal: 4,
+  },
+  activeDot: {
+    backgroundColor: 'white',
+    width: 20,
+    height: 8,
+    borderRadius: 4,
+    marginHorizontal: 4,
+  },
+});
+
+export default Entro;

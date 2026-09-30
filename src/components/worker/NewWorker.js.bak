@@ -1,0 +1,1179 @@
+// NewWorker.js - COMPLETE WITH LOADING SCREEN, VIDEO PREVIEW LOADING, AND KEYBOARD AWARE
+import React, { useState, useRef, useEffect ,useCallback} from 'react';
+import { 
+  View, 
+  ScrollView, 
+  Text, 
+  BackHandler, 
+  PermissionsAndroid, 
+  TouchableOpacity, 
+  Alert, 
+  ActivityIndicator, 
+  Keyboard,
+  Platform 
+} from 'react-native';
+import { FormControl, useToast, Box } from 'native-base';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
+import ImagePicker from 'react-native-image-crop-picker';
+import Icon from 'react-native-vector-icons/Ionicons';
+import { useIsFocused } from '@react-navigation/native';
+import NetInfo from '@react-native-community/netinfo';
+import { KeyboardAwareScrollView } from 'react-native-smart-keyboard-view';
+
+import styles from './newworkerparts/styles';
+import {
+  useCategories,
+  useFields,
+  usePropertyForm,
+  useImageManager,
+  useVideoManager,
+  useUpload,
+  useDraft,
+} from './newworkerparts/hooks';
+import {
+  CategorySelector,
+  LocationSelector,
+  TitleInput,
+  ImageUploader,
+  VideoUploader,
+  PropertyFields,
+  DescriptionInput,
+  SubmitButton,
+  StepIndicator,
+  NextStepButton,
+} from './newworkerparts/components';
+import {
+  CategoryModal,
+  ImagePreviewModal,
+  AlertModal,
+  NoImageAlertModal,
+  AddressModal,
+  CloseModal,
+} from './newworkerparts/modals';
+
+const NewWorker = ({ route, navigation }) => {
+  const { mode, propertyId } = route.params || {};
+  const toast = useToast();
+  const inputRef = useRef(null);
+  const [cellphone, setCellphone] = useState('000');
+  
+  // ============ State برای مدیریت بارگذاری اولیه ============
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
+  
+  // ============ State برای بارگذاری ویدیو ============
+  const [isVideoPreviewLoading, setIsVideoPreviewLoading] = useState(false);
+  const [showVideoLoadingOverlay, setShowVideoLoadingOverlay] = useState(false);
+  
+  const [currentStep, setCurrentStep] = useState(1);
+  
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [categoryModalOpened, setCategoryModalOpened] = useState(false);
+  
+  const [showAlert, setShowAlert] = useState(false);
+  const [showCloseModal, setShowCloseModal] = useState(false);
+  const [showNoImageAlert, setShowNoImageAlert] = useState(false);
+  const [noImageVerified, setNoImageVerified] = useState(false);
+  const [paused, setPaused] = useState(false);
+  
+  const [showAddressModal, setShowAddressModal] = useState(false);
+  const [addressData, setAddressData] = useState(null);
+
+  const [isImagePickerLoading, setIsImagePickerLoading] = useState(false);
+
+  const isFocused = useIsFocused();
+
+  const { allCategories, selectedCategory, loadingCategories, catId, selectCategory } = useCategories();
+  const { normalFields, predefineFields, tickFields, loadingFields } = useFields(catId);
+  const { 
+    properties, 
+    title, 
+    setTitle, 
+    description, 
+    setDescription, 
+    note, 
+    setNote, 
+    addProperty, 
+    removeProperty, 
+    updateProperty,
+    upsertProperty, 
+  } = usePropertyForm();
+  
+  const { 
+    images, 
+    selectedImage, 
+    isImageModalVisible, 
+    addImages, 
+    deleteImage, 
+    setMainImage, 
+    openImagePreview, 
+    closeImagePreview 
+  } = useImageManager();
+  
+  const { 
+    videos, 
+    selectedVideo, 
+    videoModalVisible, 
+    selectedVideoUri,
+    showTrimmer,
+    setShowTrimmer,
+    setSelectedVideoUri,
+    addVideo, 
+    deleteVideo, 
+    openVideoPreview, 
+    closeVideoPreview,
+    handleVideoSelected,
+    handleTrimmedAndCompressed,
+    closeTrimmer,
+    closeTrimmer2,
+    isCompressing,
+    compressingVideoUri,
+    startCompressing,
+    endCompressing,
+  } = useVideoManager();
+  
+  const { beginUpload, uploadProgress, startUpload, updateProgress, finishUpload } = useUpload();
+
+  const {
+    draftId,
+    draftData,
+    isLoadingDraft,
+    isExistingDraft,
+    isEditMode,
+    isVideoUploading,
+    uploadProgress: videoUploadProgress,
+    currentUploadVideoUri,
+    loadOrCreateDraft,
+    updateDraftData,
+    uploadImage,
+    uploadVideo,
+    deleteImage: deleteImageFromDraftAPI,
+    deleteVideo: deleteVideoFromDraftAPI,
+    cancelUpload,
+    finalize,
+    deleteDraftData,
+  } = useDraft({ mode, propertyId, categoryId: catId, navigation });
+
+  // ==================== توابع فشرده‌سازی ====================
+  const handleCompressionStart = () => {
+    startCompressing();
+  };
+  
+  const handleCompressionEnd = () => {
+    endCompressing();
+  };
+
+  // ============ بررسی وضعیت اینترنت ============
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      if (!state.isConnected) {
+        toast.show({
+          render: () => (
+            <Box bg="orange.700" px="15" py="3" rounded="md" mb={5}>
+              <Text style={{ color: 'white', fontSize: 16 }}>
+                ⚠️ اتصال اینترنت شما قطع است
+              </Text>
+            </Box>
+          ),
+        });
+        
+        if (isVideoUploading) {
+          cancelUpload();
+          Alert.alert(
+            '⚠️ آپلود لغو شد',
+            'اتصال اینترنت قطع شد. آپلود ویدیو لغو شد.',
+            [{ text: 'OK' }]
+          );
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [isVideoUploading]);
+
+  // ==================== UPDATED deleteImageFromDraft (کامل و درست) ====================
+const deleteImageFromDraft = useCallback(async (imageToDelete) => {
+  if (!draftId || !imageToDelete) return;
+  
+  console.log('🗑️ Deleting image:', imageToDelete);
+  
+  const imageBackup = { ...imageToDelete };
+
+  try {
+    // اگر ID دارد، از API سرور پاک کن
+    if (imageToDelete.id) {
+      await deleteImageFromDraftAPI(imageToDelete.id);
+      console.log('✅ Image deleted from server:', imageToDelete.id);
+    }
+
+    // پاک کردن از لیست نمایشگر (images)
+    deleteImage(imageToDelete);
+
+    // پاک کردن از draftData (برای اینکه در سرور هم پاک شود)
+    const currentImages = draftData?.images || [];
+    const updatedImages = currentImages.filter(img => 
+      img.uri !== imageToDelete.uri && 
+      img.id !== imageToDelete.id
+    );
+
+    await updateDraftData({ images: updatedImages });
+
+    toast.show({
+      render: () => (
+        <Box bg="green.500" px="15" py="3" rounded="md" mb={5}>
+          <Text style={{ color: 'white', fontSize: 16 }}>
+            عکس با موفقیت حذف شد
+          </Text>
+        </Box>
+      ),
+    });
+
+  } catch (error) {
+    console.error('❌ Error deleting image:', error);
+    
+    // در صورت خطا عکس را از نمایشگر حذف نکن (چون ممکن است در draftData باشد)
+    toast.show({
+      render: () => (
+        <Box bg="red.700" px="15" py="3" rounded="md" mb={5}>
+          <Text style={{ color: 'white', fontSize: 16 }}>
+            خطا در حذف عکس
+          </Text>
+        </Box>
+      ),
+    });
+  }
+}, [draftId, draftData, updateDraftData, deleteImage, deleteImageFromDraftAPI]);
+
+  // ============ تابع لغو آپلود با پیام ============
+  const handleCancelUpload = () => {
+    Alert.alert(
+      '⚠️ لغو آپلود',
+      'آیا مطمئن هستید می‌خواهید آپلود ویدیو را لغو کنید؟',
+      [
+        { text: 'خیر', style: 'cancel' },
+        { 
+          text: 'بله، لغو کن', 
+          style: 'destructive',
+          onPress: () => {
+            cancelUpload();
+            toast.show({
+              render: () => (
+                <Box bg="orange.700" px="15" py="3" rounded="md" mb={5}>
+                  <Text style={{ color: 'white', fontSize: 16 }}>
+                    آپلود ویدیو لغو شد
+                  </Text>
+                </Box>
+              ),
+            });
+          }
+        }
+      ]
+    );
+  };
+
+  // ============ useEffect برای بارگذاری اولیه ============
+  useEffect(() => {
+    const initializeApp = async () => {
+      console.log('🔄 Starting initial loading...');
+      setIsInitialLoading(true);
+      
+      try {
+        const phone = await AsyncStorage.getItem('cellphone');
+        setCellphone(phone || '000');
+        
+        const formData = {
+          title: '',
+          description: '',
+          note: '',
+          properties: [],
+        };
+        await loadOrCreateDraft(formData);
+        
+        setIsDataLoaded(true);
+        console.log('✅ Initial loading complete');
+      } catch (error) {
+        console.error('❌ Error during initialization:', error);
+        toast.show({
+          render: () => (
+            <Box bg="red.700" px="15" py="3" rounded="md" mb={5}>
+              <Text style={{ color: 'white', fontSize: 16 }}>
+                خطا در بارگذاری اطلاعات
+              </Text>
+            </Box>
+          ),
+        });
+      } finally {
+        setIsInitialLoading(false);
+      }
+    };
+    
+    initializeApp();
+  }, []);
+
+  // ============ پر کردن فرم با داده‌های Draft ============
+  useEffect(() => {
+    if (draftData && isExistingDraft && isDataLoaded) {
+      console.log('📝 Filling form with draft data...');
+      
+      if (draftData.name) setTitle(draftData.name);
+      if (draftData.description) setDescription(draftData.description);
+      if (draftData.note) setNote(draftData.note);
+      
+      if (draftData.json_properties) {
+        try {
+          const parsedProps = JSON.parse(draftData.json_properties);
+          parsedProps.forEach(prop => {
+            upsertProperty(prop);
+          });
+        } catch (e) {
+          console.log('Error parsing draft properties:', e);
+        }
+      }
+      
+      if (draftData.images && draftData.images.length > 0) {
+        draftData.images.forEach(img => {
+          let imageUrl = img.url;
+          if (!imageUrl || !imageUrl.startsWith('http')) {
+            imageUrl = `https://api.ajur.app/public/workers/images/${img.filepath}`;
+          }
+          addImages([{ 
+            uri: imageUrl, 
+            mime: 'image/jpeg', 
+            id: img.id 
+          }]);
+        });
+      }
+      
+      if (draftData.videos && draftData.videos.length > 0) {
+        draftData.videos.forEach(video => {
+          const videoUrl = video.url || `https://api.ajur.app/public/workers/videos/${video.filepath}`;
+          addVideo({ 
+            uri: videoUrl,
+            thumbnail: video.thumbnail || null,
+            mime: 'video/mp4', 
+            id: video.id,
+            isFromDraft: true,
+            duration: video.duration || '00:00',
+            error: false,
+          });
+        });
+      }
+      
+      if (draftData.address) {
+        let addressData = draftData.address;
+        if (typeof addressData === 'string') {
+          try {
+            addressData = JSON.parse(addressData);
+          } catch (e) {
+            console.log('Error parsing address:', e);
+          }
+        }
+        if (addressData && typeof addressData === 'object') {
+          setAddressData(addressData);
+        }
+      }
+    }
+  }, [draftData, isExistingDraft, isDataLoaded]);
+
+  // ============ انتخاب دسته‌بندی از Draft ============
+  useEffect(() => {
+    if (draftData && isExistingDraft && allCategories.length > 0 && draftData.category_id && isDataLoaded) {
+      const categoryId = Number(draftData.category_id);
+      const cat = allCategories.find(c => c.id === categoryId);
+      if (cat) {
+        selectCategory(cat);
+      }
+    }
+  }, [draftData, isExistingDraft, allCategories, isDataLoaded]);
+
+  // ============ ذخیره خودکار Draft ============
+  useEffect(() => {
+    const saveDraft = async () => {
+      if (draftId && !isEditMode && isDataLoaded) {
+        await updateDraftData({
+          title,
+          description,
+          note,
+          properties,
+          category_id: catId,
+        });
+      }
+    };
+    const timer = setTimeout(saveDraft, 1000);
+    return () => clearTimeout(timer);
+  }, [title, description, note, properties, catId, draftId, isDataLoaded]);
+
+  useEffect(() => {
+    if (isFocused) {
+      try {
+        const parent = navigation.getParent();
+        if (parent) {
+          parent.setOptions({
+            tabBarStyle: { display: 'none', height: 0 },
+            tabBarVisible: false,
+          });
+        }
+        const grandParent = navigation.getParent()?.getParent();
+        if (grandParent) {
+          grandParent.setOptions({
+            tabBarStyle: { display: 'none', height: 0 },
+            tabBarVisible: false,
+          });
+        }
+      } catch (e) {
+        console.log('Error hiding tab bar:', e);
+      }
+    }
+    return () => {
+      try {
+        const parent = navigation.getParent();
+        if (parent) {
+          parent.setOptions({ tabBarStyle: { display: 'flex', height: undefined }, tabBarVisible: true });
+          const gp = navigation.getParent()?.getParent();
+          if (gp) gp.setOptions({ tabBarStyle: { display: 'flex', height: undefined }, tabBarVisible: true });
+        }
+      } catch (e) {
+        console.log('Error showing tab bar:', e);
+      }
+    };
+  }, [isFocused, navigation]);
+
+  useEffect(() => {
+    AsyncStorage.getItem('cellphone').then(phone => setCellphone(phone));
+  }, []);
+
+  useEffect(() => {
+    if (currentStep === 2 && !selectedCategory && !categoryModalOpened && !loadingCategories) {
+      setCategoryModalOpened(true);
+      setShowCategoryModal(true);
+    }
+  }, [currentStep, selectedCategory, loadingCategories, categoryModalOpened]);
+
+  useEffect(() => {
+    if (noImageVerified) {
+      handleSubmit();
+    }
+  }, [noImageVerified]);
+
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+      setShowCloseModal(true);
+      return true;
+    });
+    return () => backHandler.remove();
+  }, []);
+
+  // ==================== توابع ====================
+  const requestCameraPermission = async () => {
+    try {
+      const hasPermission = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.CAMERA);
+      if (hasPermission) return true;
+      const status = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.CAMERA,
+        {
+          title: 'Camera Permission',
+          message: 'This app needs access to your camera to take photos.',
+          buttonNeutral: 'Ask Me Later',
+          buttonNegative: 'Cancel',
+          buttonPositive: 'OK',
+        },
+      );
+      return status === PermissionsAndroid.RESULTS.GRANTED;
+    } catch (error) {
+      return false;
+    }
+  };
+
+  // ==================== UPDATED pickImages (فقط یک آرایه + پاک کردن واقعی) ====================
+  // ==================== UPDATED pickImages (فقط یک آرایه + پاک کردن واقعی) ====================
+const pickImages = () => {
+  if (isImagePickerLoading) {
+    console.log('⏳ Image picker is loading, please wait...');
+    return;
+  }
+
+  Keyboard.dismiss();
+  setIsImagePickerLoading(true);
+
+  setTimeout(() => {
+    console.log('📸 Opening image picker...');
+    
+    ImagePicker.openPicker({
+      multiple: true,
+      mediaType: 'photo',
+      compressImageMaxWidth: 1080,
+      compressImageMaxHeight: 1080,
+      compressImageQuality: 0.8,
+      forceJpg: true,
+      includeExif: false,
+      waitAnimationEnd: false,
+      cropping: false,
+      showsSelectedCount: true,
+    })
+    .then(async (selectedImages) => {
+      setIsImagePickerLoading(false);
+      console.log('✅ Images selected:', selectedImages.length);
+      
+      const processedImages = selectedImages.map((img) => ({
+        uri: img.path,
+        width: img.width,
+        height: img.height,
+        mime: img.mime || 'image/jpeg',
+      }));
+
+      addImages(processedImages);
+
+      for (const img of processedImages) {
+        try {
+          const result = await uploadImage(img.uri, img.mime);
+          
+          if (result && result.image) {
+            const newImage = {
+              id: result.image.id,
+              url: result.image.url,
+              filepath: result.image.filepath,
+            };
+
+            const updatedProcessed = processedImages.map(p => {
+              if (p.uri === img.uri) return { ...p, ...newImage };
+              return p;
+            });
+
+            addImages(updatedProcessed);
+          }
+        } catch (error) {
+          console.error('❌ Error uploading image:', error);
+          deleteImage(img);
+          toast.show({
+            render: () => (
+              <Box bg="red.700" px="15" py="3" rounded="md" mb={5}>
+                <Text style={{ color: 'white', fontSize: 16 }}>
+                  خطا در آپلود عکس
+                </Text>
+              </Box>
+            ),
+          });
+        }
+      }
+    })
+    .catch(error => {
+      console.log('❌ Error picking images:', error);
+      if (error.message !== 'User cancelled image selection') {
+        toast.show({
+          render: () => (
+            <Box bg="red.700" px="15" py="3" rounded="md" mb={5}>
+              <Text style={{ color: 'white', fontSize: 16 }}>
+                خطا در انتخاب عکس
+              </Text>
+            </Box>
+          ),
+        });
+      }
+    })
+    .finally(() => {
+      setIsImagePickerLoading(false);
+      console.log('✅ Image picker closed');
+    });
+  }, 200);
+};
+
+  const openCamera = async () => {
+    const hasPermission = await requestCameraPermission();
+    if (!hasPermission) return;
+    try {
+      const image = await ImagePicker.openCamera({
+        width: 1080,
+        height: 1080,
+        cropping: false,
+        includeBase64: false,
+        compressImageQuality: 0.8,
+      });
+      const processedImage = {
+        uri: image.path,
+        width: image.width,
+        height: image.height,
+        mime: image.mime || 'image/jpeg',
+      };
+      addImages([processedImage]);
+
+      try {
+        const result = await uploadImage(processedImage.uri, processedImage.mime);
+        if (result && result.image) {
+          const updated = [{ ...processedImage, id: result.image.id, url: result.image.url, filepath: result.image.filepath }];
+          addImages(updated);
+        }
+      } catch (error) {
+        console.error('❌ Error uploading image:', error);
+        deleteImage(processedImage);
+        toast.show({
+          render: () => (
+            <Box bg="red.700" px="15" py="3" rounded="md" mb={5}>
+              <Text style={{ color: 'white', fontSize: 16 }}>
+                خطا در آپلود عکس
+              </Text>
+            </Box>
+          ),
+        });
+      }
+    } catch (error) {
+      if (error.message !== 'User cancelled image selection') {
+        console.log('Error opening camera:', error);
+      }
+    }
+  };
+
+  // ============ UPDATED pickVideos with full-screen loading overlay ============
+  const pickVideos = () => {
+    if (isVideoPreviewLoading || showVideoLoadingOverlay) {
+      console.log('⏳ Video is loading, please wait...');
+      return;
+    }
+
+    console.log('📹 pickVideos called');
+    
+    setShowVideoLoadingOverlay(true);
+    setIsVideoPreviewLoading(true);
+
+    ImagePicker.openPicker({ mediaType: 'video' })
+      .then(async (video) => {
+        console.log('Video picked:', video);
+        
+        setShowVideoLoadingOverlay(false);
+        setShowTrimmer(true);
+        setSelectedVideoUri(video.path);
+        
+        let fileSize = 0;
+        let fileSizeMB = 0;
+        
+        try {
+          const response = await fetch(video.path);
+          const blob = await response.blob();
+          fileSize = blob.size;
+          fileSizeMB = (fileSize / 1024 / 1024).toFixed(2);
+
+          const newVideo = {
+            uri: video.path,
+            mime: video.mime || 'video/mp4',
+            width: video.width || 1080,
+            height: video.height || 1080,
+            size: fileSize,
+          };
+          handleVideoSelected(newVideo);
+          
+          console.log(`📊 File size: ${fileSizeMB} MB (${fileSize} bytes)`);
+          
+        } catch (error) {
+          console.log('Could not get file size:', error);
+          const newVideo = {
+            uri: video.path,
+            mime: video.mime || 'video/mp4',
+            width: video.width || 1080,
+            height: video.height || 1080,
+          };
+          handleVideoSelected(newVideo);
+        }
+        
+      })
+      .catch(error => {
+        console.log('Error picking video:', error);
+        
+        setShowVideoLoadingOverlay(false);
+        setShowTrimmer(false);
+        setIsVideoPreviewLoading(false);
+        
+        let errorMessage = 'خطای ناشناخته';
+        if (typeof error === 'string') errorMessage = error;
+        else if (error && typeof error === 'object') errorMessage = error.message || error.toString() || 'خطای ناشناخته';
+        
+        if (errorMessage !== 'User cancelled image selection') {
+          toast.show({
+            render: () => (
+              <Box bg="red.700" px="15" py="3" rounded="md" mb={5}>
+                <Text style={{ color: 'white', fontSize: 16 }}>
+                  خطا در انتخاب ویدیو: {errorMessage}
+                </Text>
+              </Box>
+            ),
+          });
+        }
+      })
+      .finally(() => {
+        setIsVideoPreviewLoading(false);
+        setShowVideoLoadingOverlay(false);
+        console.log('✅ Video picker unlocked');
+      });
+  };
+
+  const handleSelectCategory = (category) => {
+    selectCategory(category);
+    setCategoryModalOpened(true);
+    setShowCategoryModal(false);
+    if (draftId) {
+      updateDraftData({ category_id: category.id });
+    }
+  };
+
+  const handleAddressConfirm = (address) => {
+    setAddressData(address);
+    setShowAddressModal(false);
+    if (draftId) {
+      updateDraftData({ address: address })
+        .then(() => console.log('✅ Address saved to draft'))
+        .catch((error) => console.error('❌ Error saving address:', error));
+    }
+  };
+
+  const handleClose = () => {
+    setShowCloseModal(true);
+  };
+
+  const handleCloseSave = async () => {
+    setShowCloseModal(false);
+    if (draftId) {
+      await updateDraftData({
+        title,
+        description,
+        note,
+        properties,
+        category_id: catId,
+        address: addressData,
+      });
+    }
+    navigation.goBack();
+  };
+
+  const handleCloseDelete = async () => {
+    setShowCloseModal(false);
+    if (draftId) {
+      await deleteDraftData();
+    }
+    navigation.goBack();
+  };
+
+  const handleCloseCancel = () => {
+    setShowCloseModal(false);
+  };
+
+  const handleBackConfirm = () => {
+    setShowAlert(false);
+    navigation.goBack();
+  };
+
+  const handleNoImageConfirm = () => {
+    setShowNoImageAlert(false);
+    setNoImageVerified(true);
+  };
+
+  const goToStep2 = () => {
+    if (images.length === 0) {
+      toast.show({
+        render: () => (
+          <Box bg="orange.700" px="15" py="3" rounded="md" mb={5}>
+            <Text style={{ color: 'white', fontSize: 16 }}>
+              لطفا حداقل یک عکس انتخاب کنید
+            </Text>
+          </Box>
+        ),
+      });
+      return;
+    }
+    if (!title || title.length < 3) {
+      toast.show({
+        render: () => (
+          <Box bg="orange.700" px="15" py="3" rounded="md" mb={5}>
+            <Text style={{ color: 'white', fontSize: 16 }}>
+              عنوان باید حداقل ۳ حرف باشد
+            </Text>
+          </Box>
+        ),
+      });
+      return;
+    }
+    if (!description || description.length < 10) {
+      toast.show({
+        render: () => (
+          <Box bg="orange.700" px="15" py="3" rounded="md" mb={5}>
+            <Text style={{ color: 'white', fontSize: 16 }}>
+              لطفا توضیحات کامل‌تری وارد کنید (حداقل ۱۰ حرف)
+            </Text>
+          </Box>
+        ),
+      });
+      return;
+    }
+    setCurrentStep(2);
+  };
+
+  const goToStep1 = () => {
+    setCurrentStep(1);
+  };
+
+  const handleSubmit = async () => {
+    if (!selectedCategory) {
+      setShowCategoryModal(true);
+      toast.show({ render: () => <Box bg="orange.700" px="15" py="3" rounded="md" mb={5}><Text style={{ color: 'white', fontSize: 16 }}>لطفا دسته بندی را انتخاب کنید</Text></Box> });
+      return;
+    }
+
+    if (!addressData) {
+      toast.show({ render: () => <Box bg="orange.700" px="15" py="3" rounded="md" mb={5}><Text style={{ color: 'white', fontSize: 16 }}>لطفا موقعیت ملک را انتخاب کنید</Text></Box> });
+      return;
+    }
+
+    if (isVideoUploading || isCompressing) {
+      toast.show({ render: () => <Box bg="orange.700" px="15" py="3" rounded="md" mb={5}><Text style={{ color: 'white', fontSize: 16 }}>
+        {isCompressing ? 'لطفا تا پایان فشرده‌سازی ویدیو صبر کنید' : 'لطفا تا پایان آپلود ویدیو صبر کنید'}
+      </Text></Box> });
+      return;
+    }
+
+    if (!normalFields || normalFields.length === 0) {
+      toast.show({ render: () => <Box bg="orange.700" px="15" py="3" rounded="md" mb={5}><Text style={{ color: 'white', fontSize: 16 }}>لطفا ابتدا دسته بندی را انتخاب کنید تا فیلدها بارگذاری شوند</Text></Box> });
+      return;
+    }
+
+    const requiredFields = normalFields.filter(f => f.special === '1');
+    const missingRequired = requiredFields.filter(f => !properties.some(p => p.name === f.value && p.value && p.value !== ''));
+    if (missingRequired.length > 0) {
+      const missingNames = missingRequired.map(f => f.value).join('، ');
+      toast.show({ render: () => <Box bg="orange.700" px="15" py="3" rounded="md" mb={5}><Text style={{ color: 'white', fontSize: 16 }}>لطفا فیلدهای ستاره دار را پر کنید: {missingNames}</Text></Box> });
+      return;
+    }
+
+    const requiredTickFields = tickFields.filter(f => f.special === "1");
+    const missingTickFields = requiredTickFields.filter(f => !properties.some(p => p.name === f.value && (p.value === 1 || p.value === 0)));
+    if (missingTickFields.length > 0) {
+      const missingNames = missingTickFields.map(f => f.value).join('، ');
+      toast.show({ render: () => <Box bg="orange.700" px="15" py="3" rounded="md" mb={5}><Text style={{ color: 'white', fontSize: 16 }}>لطفا وضعیت موارد زیر را مشخص کنید: {missingNames}</Text></Box> });
+      return;
+    }
+
+    if (draftId) {
+      try {
+        await updateDraftData({ title, description, note, properties, category_id: catId, address: addressData });
+      } catch (error) {
+        toast.show({ render: () => <Box bg="red.700" px="15" py="3" rounded="md" mb={5}><Text style={{ color: 'white', fontSize: 16 }}>خطا در ذخیره پیش‌نویس</Text></Box> });
+        return;
+      }
+    } else {
+      toast.show({ render: () => <Box bg="orange.700" px="15" py="3" rounded="md" mb={5}><Text style={{ color: 'white', fontSize: 16 }}>خطا: شناسه پیش‌نویس یافت نشد</Text></Box> });
+      return;
+    }
+
+    await submitPropertyWithAddress(addressData);
+  };
+
+  const submitPropertyWithAddress = async (address) => {
+    try {
+      startUpload();
+      const token = await AsyncStorage.getItem('id_token');
+      
+      if (draftId) {
+        const finalized = await finalize({ category_id: catId, title, description, note, properties, phone: cellphone });
+        const workerId = finalized?.id || draftId;
+        await submitLocation(token, workerId, address);
+        finishUpload();
+        navigation.navigate('SingleUpgrade', { worker_id: workerId });
+        return;
+      }
+
+      const formData = new FormData();
+      images.forEach((img, index) => {
+        formData.append('upload[]', { uri: img.uri, name: `image_${Date.now()}_${index}.jpg`, type: img.mime || 'image/jpeg' });
+      });
+
+      if (videos.length > 0) {
+        videos.forEach((video, index) => {
+          formData.append('videos[]', { uri: video.uri, name: `video_${Date.now()}_${index}.mp4`, type: video.mime || 'video/mp4' });
+        });
+      } else {
+        formData.append('videos[]', null);
+      }
+
+      const response = await axios.post('https://api.ajur.app/api/post-model-with-images', formData, {
+        params: {
+          token,
+          category_id: catId,
+          phone: cellphone,
+          title,
+          description,
+          note,
+          properties: JSON.stringify(properties),
+        },
+        onUploadProgress: (progressEvent) => {
+          const progress = Math.floor((progressEvent.loaded * 100) / progressEvent.total);
+          updateProgress(progress);
+        },
+      });
+
+      const workerId = response.data.worker.id;
+      await submitLocation(token, workerId, address);
+      finishUpload();
+      navigation.navigate('SingleUpgrade', { worker_id: workerId });
+      
+    } catch (error) {
+      finishUpload();
+      toast.show({ render: () => <Box bg="red.700" px="15" py="3" rounded="md" mb={5}><Text style={{ color: 'white', fontSize: 16 }}>
+        {error.response?.data?.message || 'خطا در ارسال اطلاعات'}
+      </Text></Box> });
+    }
+  };
+
+  const submitLocation = async (token, workerId, address) => {
+    try {
+      const response = await axios({
+        method: 'post',
+        url: 'https://api.ajur.app/api/post-model-location',
+        timeout: 1000 * 35,
+        params: {
+          token,
+          lat: 35.6995,
+          long: 51.3379,
+          worker_id: workerId,
+          region: address.region || '',
+          neighbourhood: address.neighbourhood,
+          city: address.city,
+          municipality_zone: address.municipality_zone || '',
+          state: address.state || '',
+          formatted: address.formatted
+        },
+      });
+
+      if (response.data.status == "200") {
+        toast.show({ render: () => <Box bg="green.500" px="15" py="3" rounded="md" mb={5}><Text style={{ color: 'white', fontSize: 16 }}>آگهی شما با موفقیت ثبت شد</Text></Box> });
+      }
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  const formatCategoryName = (name) => {
+    if (!name) return '';
+    return name.replace(/خرید/g, 'فروش');
+  };
+
+  const formatLocationDisplay = (address) => {
+    if (!address) return null;
+    return { city: address.city, neighbourhood: address.neighbourhood, formatted: address.formatted };
+  };
+
+  const numToPersianForField = (num) => {
+    if (!num || num === '') return '';
+    const number = Number(num);
+    if (isNaN(number) || number === 0) return '';
+    
+    const persianNumbers = ['', 'یک', 'دو', 'سه', 'چهار', 'پنج', 'شش', 'هفت', 'هشت', 'نه'];
+    const tens = ['', '', 'بیست', 'سی', 'چهل', 'پنجاه', 'شصت', 'هفتاد', 'هشتاد', 'نود'];
+    const teens = ['ده', 'یازده', 'دوازده', 'سیزده', 'چهارده', 'پانزده', 'شانزده', 'هفده', 'هجده', 'نوزده'];
+    const hundreds = ['', 'صد', 'دویست', 'سیصد', 'چهارصد', 'پانصد', 'ششصد', 'هفتصد', 'هشتصد', 'نهصد'];
+    const units = ['', 'هزار', 'میلیون', 'میلیارد'];
+
+    const splitNumber = (number) => {
+      let result = [];
+      while (number > 0) {
+        result.push(number % 1000);
+        number = Math.floor(number / 1000);
+      }
+      return result;
+    };
+
+    const threeDigitToWords = (number) => {
+      let result = [];
+      const hundredPart = Math.floor(number / 100);
+      const remainder = number % 100;
+
+      if (hundredPart > 0) result.push(hundreds[hundredPart]);
+      if (remainder >= 10 && remainder < 20) {
+        result.push(teens[remainder - 10]);
+      } else {
+        const tenPart = Math.floor(remainder / 10);
+        const unitPart = remainder % 10;
+        if (tenPart > 0) result.push(tens[tenPart]);
+        if (unitPart > 0) result.push(persianNumbers[unitPart]);
+      }
+      return result.join(' و ');
+    };
+
+    const groups = splitNumber(number);
+    let words = [];
+    groups.forEach((group, index) => {
+      if (group > 0) {
+        const groupWord = threeDigitToWords(group);
+        const unit = units[index];
+        words.unshift(unit ? `${groupWord} ${unit}` : groupWord);
+      }
+    });
+    return words.join(' و ').trim();
+  };
+
+  // ============================================================
+  // ============ RETURN ها ============
+  // ============================================================
+
+  if (isInitialLoading || isLoadingDraft || !isDataLoaded) {
+    return (
+      <View style={styles.fullLoadingContainer}>
+        <ActivityIndicator size="large" color="#a92b31" />
+        {isLoadingDraft && <Text style={styles.loadingSubText}>لطفاً صبر کنید</Text>}
+      </View>
+    );
+  }
+
+  if (showVideoLoadingOverlay) {
+    return (
+      <View style={styles.fullLoadingContainer}>
+        <ActivityIndicator size="large" color="#a92b31" />
+      </View>
+    );
+  }
+
+  if (isImagePickerLoading) {
+    return (
+      <View style={styles.fullLoadingContainer}>
+        <ActivityIndicator size="large" color="#a92b31" />
+      </View>
+    );
+  }
+
+  if (beginUpload) {
+    return (
+      <View style={styles.fullLoadingContainer}>
+        <ActivityIndicator size="large" color="#a92b31" />
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ flex: 1, backgroundColor: 'white' }}>
+      <StepIndicator currentStep={currentStep} onClose={handleClose} isEditMode={isEditMode} isDraft={isExistingDraft} />
+
+      <KeyboardAwareScrollView
+        style={{ flex: 1 }}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ paddingBottom: 20 }}
+        showsVerticalScrollIndicator={false}
+        enableOnAndroid={true}
+        extraHeight={Platform.OS === 'ios' ? 100 : 80}
+        extraScrollHeight={Platform.OS === 'ios' ? 100 : 80}
+        viewIsInsideTabBar={true}
+      >
+        <View style={{ backgroundColor: 'white' }}>
+          <FormControl>
+            {currentStep === 1 && (
+              <>
+                <TitleInput ref={inputRef} value={title} onChangeText={setTitle} />
+                <ImageUploader
+                  images={images}
+                  onAddImage={pickImages}
+                  onOpenCamera={openCamera}
+                  onDeleteImage={deleteImageFromDraft}
+                  onSetMainImage={setMainImage}
+                  onOpenPreview={openImagePreview}
+                />
+                <DescriptionInput description={description} setDescription={setDescription} note={note} setNote={setNote} showNote={false} />
+              </>
+            )}
+
+            {currentStep === 2 && (
+              <>
+                <View style={{ flexDirection: 'row', marginHorizontal: 8, marginBottom: 1 }}>
+                  <TouchableOpacity style={styles.backStepButton} onPress={goToStep1}>
+                    <Icon name="chevron-back-outline" size={24} color="#a92b31" />
+                    <Text style={styles.backStepButtonText}>مرحله قبل</Text>
+                  </TouchableOpacity>
+                </View>
+                <CategorySelector selectedCategory={selectedCategory} onPress={() => { setCategoryModalOpened(true); setShowCategoryModal(true); }} formatCategoryName={formatCategoryName} />
+
+                <VideoUploader
+                  videos={videos}
+                  onAddVideo={pickVideos}
+                  onDeleteVideo={deleteVideo}
+                  onOpenPreview={openVideoPreview}
+                  onCloseVideoPreview={closeVideoPreview}
+                  videoModalVisible={videoModalVisible}
+                  selectedVideo={selectedVideo}
+                  paused={paused}
+                  showTrimmer={showTrimmer}
+                  selectedVideoUri={selectedVideoUri}
+                  onTrimmedAndCompressed={handleTrimmedAndCompressed}
+                  onCloseTrimmer={closeTrimmer}
+                  onCloseTrimmer2={closeTrimmer2}
+                  isVideoUploading={isVideoUploading}
+                  videoUploadProgress={videoUploadProgress}
+                  currentUploadVideoUri={currentUploadVideoUri}
+                  onCancelUpload={cancelUpload}
+                  onUploadVideo={uploadVideo}
+                  isCompressing={isCompressing}
+                  compressingVideoUri={compressingVideoUri}
+                  onCompressionStart={handleCompressionStart}
+                  onCompressionEnd={handleCompressionEnd}
+                  isLoading={isVideoPreviewLoading}
+                />
+
+                <LocationSelector selectedLocation={formatLocationDisplay(addressData)} onPress={() => setShowAddressModal(true)} />
+
+                <Text style={styles.sectionTitle}>مشخصات ملک</Text>
+                <Text style={styles.sectionSubtitle}>
+                  فقط فیلدهایی که ستاره دارند اجباری میباشند، ولی با پر کردن هرچه بیشتر اطلاعات ملکی
+                  شانس نمایش ملک خود به مشتری را بالا میبرید و به هوش مصنوعی آجر امکان پردازش بهتری میدهید
+                </Text>
+
+                <PropertyFields
+                  normalFields={normalFields}
+                  tickFields={tickFields}
+                  predefineFields={predefineFields}
+                  properties={properties}
+                  loading={loadingFields}
+                  onAddProperty={addProperty}
+                  onRemoveProperty={removeProperty}
+                  onUpdateProperty={updateProperty}
+                  onUpsertProperty={upsertProperty}
+                  formatNumber={(num) => num?.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}
+                  numToPersian={numToPersianForField}
+                />
+
+                <DescriptionInput description={description} setDescription={setDescription} note={note} setNote={setNote} showDescription={false} />
+              </>
+            )}
+          </FormControl>
+        </View>
+      </KeyboardAwareScrollView>
+
+      {currentStep === 1 && <NextStepButton onPress={goToStep2} loading={false} />}
+      {currentStep === 2 && <SubmitButton onPress={handleSubmit} loading={beginUpload} isVideoProcessing={isVideoUploading || isCompressing} />}
+
+      <CategoryModal
+        isVisible={showCategoryModal}
+        categories={allCategories}
+        loading={loadingCategories}
+        selectedCategory={selectedCategory}
+        onSelectCategory={handleSelectCategory}
+        onClose={() => { if (selectedCategory) setShowCategoryModal(false); }}
+        isForced={false}
+        formatCategoryName={formatCategoryName}
+      />
+
+      <ImagePreviewModal
+        isVisible={isImageModalVisible}
+        image={selectedImage}
+        onClose={closeImagePreview}
+        onDelete={() => {
+          deleteImageFromDraft(selectedImage);
+          closeImagePreview();
+        }}
+        onSetMain={() => {
+          setMainImage(selectedImage);
+          closeImagePreview();
+        }}
+      />
+
+      <AlertModal isVisible={showAlert} onCancel={() => setShowAlert(false)} onConfirm={handleBackConfirm} />
+      <CloseModal isVisible={showCloseModal} onCancel={handleCloseCancel} onSave={handleCloseSave} onDelete={handleCloseDelete} />
+      <NoImageAlertModal isVisible={showNoImageAlert} onCancel={() => setShowNoImageAlert(false)} onConfirm={handleNoImageConfirm} />
+      <AddressModal isVisible={showAddressModal} onClose={() => setShowAddressModal(false)} onConfirm={handleAddressConfirm} isLoading={beginUpload} />
+    </View>
+  );
+};
+
+export default NewWorker;

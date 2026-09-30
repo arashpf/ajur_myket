@@ -1,0 +1,457 @@
+import React, {useState, useEffect} from 'react';
+import {
+  View,
+  ScrollView,
+  TouchableOpacity,
+  ImageBackground,
+  Dimensions,
+  StyleSheet,
+  Text,
+  Share
+} from 'react-native';
+import GuideOverlay from '../SettingGuideOverlay';
+import {
+  Box,
+  Center,
+  Button,
+  Avatar,
+  Image,
+  Actionsheet,
+  useToast,
+  HStack,
+  VStack,
+  
+} from 'native-base';
+import Icon from 'react-native-vector-icons/Ionicons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
+import Spinner from 'react-native-spinkit';
+import ImagePicker from 'react-native-image-crop-picker';
+import * as Progress from 'react-native-progress';
+import MapView, {Marker, PROVIDER_GOOGLE} from 'react-native-maps';
+
+
+
+const {width, height} = Dimensions.get('window');
+const ASPECT_RATIO = width / height;
+const LATITUDE_DELTA = 0.001;
+const LONGITUDE_DELTA = LATITUDE_DELTA * ASPECT_RATIO;
+
+const Setting = ({navigation}) => {
+  const toast = useToast();
+  const [loading, set_loading] = useState(true);
+  const [data, set_data] = useState([]);
+  const [realstateImage, set_realstateImage] = useState('');
+  const [profileImage, set_profileImage] = useState(false);
+  const [token, set_token] = useState(null);
+  const [showGuide, setShowGuide] = useState(false);
+  
+
+  useEffect(() => {
+    fetchUserData();
+  }, []);
+
+
+   useEffect(() => {
+      const checkFirstTime = async () => {
+        const hasSeenModal = await AsyncStorage.getItem('hasSeenProfileModal');
+        if (!hasSeenModal || hasSeenModal =='false') {
+          
+          setShowGuide(true);
+          await AsyncStorage.setItem('hasSeenProfileModal', 'true');
+        } else {
+        }
+      };
+      checkFirstTime(); 
+    }, []);
+
+  const fetchUserData = async () => {
+    try {
+      const token = await AsyncStorage.getItem('id_token');
+      set_token(token);
+
+      const response = await axios({
+        method: 'get',
+        url: 'https://api.ajur.app/api/get-user',
+        params: {token},
+      });
+
+      set_data(response.data.user);
+      set_profileImage(response.data.user.profile_url);
+      set_realstateImage(response.data.user.realstate_url);
+      set_loading(false);
+
+      if (response.data.user.realstate_lat == 0.0) {
+        showToast('محل دقیق مشاور املاک را مشخص کنید', 'orange.700');
+      }
+    } catch (error) {
+      console.error('Error fetching user data:', error);
+      showToast('خطا در دریافت اطلاعات', 'red.700');
+    }
+  };
+
+  const showToast = (message, bgColor) => {
+    toast.show({
+      render: () => (
+        <Box bg={bgColor} px="15" py="3" rounded="md" mb={5}>
+          <Text style={{color: 'white', fontSize: 16}}>{message}</Text>
+        </Box>
+      ),
+    });
+  };
+
+  const pickProfile = async () => {
+    try {
+      const image = await ImagePicker.openPicker({
+        cropping: true,
+        width: 840,
+        height: 840,
+        compressImageQuality: 0.8,
+      });
+
+      set_profileImage(image.path);
+      await uploadImage(image, 'post-profile-images');
+    } catch (error) {
+      console.error('Error picking profile image:', error);
+    }
+  };
+
+  const pickRealstateImage = async () => {
+    try {
+      const image = await ImagePicker.openPicker({
+        cropping: true,
+        width: 840,
+        height: 600,
+        compressImageQuality: 0.8,
+      });
+
+      set_realstateImage(image.path);
+      await uploadImage(image, 'post-realstate-images');
+    } catch (error) {
+      console.error('Error picking realstate image:', error);
+    }
+  };
+
+  const uploadImage = async (image, endpoint) => {
+    try {
+      const token = await AsyncStorage.getItem('id_token');
+
+       const imageName = `${Date.now()}-${Math.floor(Math.random() * 1000)}.jpg`;
+
+    // 1. Prepare the image data to store locally
+    const imageData = {
+      uri: image.path,
+      name: imageName,
+      type: image.mime,
+      uploadedAt: new Date().toISOString(),
+    };
+
+    // 2. Store in AsyncStorage (replaces any existing image)
+    
+      const formData = new FormData();
+      const fileName = `${new Date().toString().replace(/\s+/g, '-')}${Math.floor(Math.random() * 1000000)}.jpg`;
+
+      formData.append('upload[]', {
+        uri: image.path,
+        name: fileName,
+        type: image.mime,
+      });
+
+      const response = await axios({
+        method: 'post',
+        url: `https://api.ajur.app/api/${endpoint}`,
+        data: formData,
+        params: {token},
+        timeout: 30000,
+      });
+
+      if (response.data.status == '200') { 
+        showToast('عکس شما با موفقیت بارگزاری شد', 'green.700');
+        await AsyncStorage.setItem('userProfileImage', JSON.stringify(imageData));
+      } else {
+        showToast('متاسفانه مشکلی پیش آمده', 'red.700');
+      }
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      showToast('خطا در آپلود تصویر', 'red.700');
+    }
+  };
+
+  const renderRealstateStars = (stars) => {
+    const filledStars = Math.min(5, Math.max(0, stars));
+    const emptyStars = 5 - filledStars;
+    
+    return (
+      <View style={styles.starContainer}>
+        {[...Array(filledStars)].map((_, i) => (
+          <Icon key={`filled-${i}`} style={styles.filledStar} name="ios-star" />
+        ))}
+        {[...Array(emptyStars)].map((_, i) => (
+          <Icon key={`empty-${i}`} style={styles.emptyStar} name="ios-star-outline" />
+        ))}
+      </View>
+    );
+  };
+
+
+
+  const EditRealstate = () => {
+    navigation.navigate('EditRealstate', {userId: data.id});
+  };
+
+    const shareProfile = async () => {
+    try {
+      const shareOptions = {
+        message: `پروفایل ${data.name} ${data.family} در آجر\n\nشماره تماس: ${data.phone}\n\nمشاهده پروفایل: https://ajur.app/realestates/${data.id}`,
+        title: 'اشتراک گذاری پروفایل'
+      };
+
+      await Share.share(shareOptions);
+    } catch (error) {
+      console.error('Error sharing profile:', error);
+    }
+  };
+
+  const AppBar = () => (
+    <>
+      <Box safeAreaTop bg="violet.600" />
+      <HStack
+        bg="white.600"
+        px="5"
+        py="3"
+        justifyContent="space-between"
+        alignItems="center"
+        w="100%">
+        <TouchableOpacity onPress={() => navigation.pop()}>
+          <Icon style={styles.backIcon} name="arrow-back" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>پروفایل</Text>
+        <TouchableOpacity onPress={EditRealstate}>
+          <Icon style={styles.editIcon} name="ios-create-outline" />
+        </TouchableOpacity>
+      </HStack>
+    </>
+  );
+
+  const renderStatus = () => {
+    let statusText, statusColor;
+    switch(data.status) {
+      case '1': 
+        statusText = 'فعال';
+        statusColor = 'green';
+        break;
+      case '2':
+        statusText = 'در حال بررسی';
+        statusColor = 'blue';
+        break;
+      default:
+        statusText = 'رد شده';
+        statusColor = 'red';
+    }
+
+    return (
+      <View style={styles.statusContainer}>
+        <Text style={[styles.statusValue, {color: statusColor}]}>{statusText} </Text>
+        <Text style={styles.statusLabel}>وضعیت</Text>
+         
+      </View>
+    );
+  };
+
+  const renderProfileSection = () => (
+    <View style={styles.profileContainer}>
+      <TouchableOpacity onPress={pickProfile}>
+        <Avatar size="xl" source={{uri: profileImage}} borderWidth={2} borderColor="orange.500" />
+      </TouchableOpacity>
+      <View style={styles.profileInfo}>
+        <Text style={styles.realstateName}>{data.realstate}</Text>
+        <Text style={styles.userName}>{data.name} {data.family}</Text>
+        {renderRealstateStars(data.stars)}
+      </View>
+    </View>
+  );
+
+  const renderRealstateImage = () => (
+    <TouchableOpacity onPress={pickRealstateImage} style={styles.realstateImageContainer}>
+      <Image 
+        source={{uri: realstateImage}} 
+        style={styles.realstateImage}
+        alt="Realstate Image"
+        resizeMode="cover"
+      />
+    </TouchableOpacity>
+  );
+
+  const renderDescription = () => (
+    <View style={styles.descriptionContainer}>
+      <Text style={styles.descriptionText}>{data.description}</Text>
+    </View>
+  );
+
+  const renderContent = () => (
+    <ScrollView contentContainerStyle={styles.container}>
+      <AppBar />
+      
+      <VStack space={4} style={styles.contentContainer}>
+        {renderProfileSection()}
+
+        <Button 
+          onPress={shareProfile}
+          leftIcon={<Icon name="share-social" size={20} color="white" />}
+          style={styles.helpButton}
+        >
+          ارسال پروفایل 
+        </Button>
+        {renderStatus()}
+        {renderRealstateImage()}
+        {renderDescription()}
+        
+        <Button 
+          onPress={() => setShowGuide(true)}
+          leftIcon={<Icon name="help-circle" size={20} color="white" />}
+          style={styles.helpButton}
+        >
+          راهنمای استفاده
+        </Button>
+      </VStack>
+
+      <GuideOverlay
+        visible={showGuide}
+        onComplete={() => setShowGuide(false)}
+      />
+    </ScrollView>
+  );
+
+  return loading ? (
+    <Center flex={1}>
+      <Spinner isVisible size={50} type="Circle" color="#b92a31" />
+    </Center>
+  ) : renderContent();
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flexGrow: 1,
+    backgroundColor: '#f8f9fa',
+    paddingBottom: 20,
+  },
+  contentContainer: {
+    paddingHorizontal: 16,
+  },
+  backIcon: {
+    color: '#555',
+    fontSize: 24,
+  },
+  editIcon: {
+    color: '#444',
+    fontSize: 24,
+  },
+  headerTitle: {
+    color: '#444',
+    fontSize: 20,
+    
+    fontFamily:'iransans'
+  },
+  profileContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  profileInfo: {
+    marginLeft: 16,
+    flex: 1,
+  },
+  realstateName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  userName: {
+    fontSize: 16,
+    color: '#666',
+    marginTop: 4,
+  },
+  starContainer: {
+    flexDirection: 'row',
+    marginTop: 8,
+  },
+  filledStar: {
+    color: 'gold',
+    fontSize: 20,
+    marginHorizontal: 2,
+  },
+  emptyStar: {
+    color: '#ddd',
+    fontSize: 20,
+    marginHorizontal: 2,
+  },
+  statusContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  statusLabel: {
+    fontSize: 16,
+    color: '#666',
+  },
+  statusValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  realstateImageContainer: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginTop: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  realstateImage: {
+    width: '100%',
+    height: 200,
+  },
+  descriptionContainer: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  descriptionText: {
+    fontSize: 16,
+    color: '#444',
+    lineHeight: 24,
+    textAlign: 'right',
+  },
+  helpButton: {
+    marginTop: 24,
+    backgroundColor: '#4A90E2',
+    borderRadius: 8,
+    paddingVertical: 12,
+  },
+});
+
+export default Setting;

@@ -1,0 +1,53 @@
+{
+  "migIndex": 1,
+  "data": [
+    {
+      "path": "assets/fonts/Av.ttf",
+      "sha1": "262a033aa8ced810f033660a06a8c841edb5f375"
+    },
+    {
+      "path": "assets/fonts/Av.woff2",
+      "sha1": "72f82fe7d1f7154ba0ba139e614112120d8ad0b0"
+    },
+    {
+      "path": "assets/fonts/BYekan+ Bold.ttf",
+      "sha1": "0c40703b127e4cfeefd39587b24f19d0dc5ab4f7"
+    },
+    {
+      "path": "assets/fonts/BYekan+.ttf",
+      "sha1": "50919cf5c17afde12809e862cb1744c2ca2f24fd"
+    },
+    {
+      "path": "assets/fonts/iransans.ttf",
+      "sha1": "8afc6b42192ffec8c4a789f63ea8e7b17bcf6a2f"
+    },
+    {
+      "path": "assets/fonts/IranYekan.ttf",
+      "sha1": "08e5c02b0a5e3bdd87e46394f6164db8725b7579"
+    },
+    {
+      "path": "assets/fonts/Vazirmatn-Black.ttf",
+      "sha1": "96750e70c96006cd6439a0dee275e8e08793a854"
+    },
+    {
+      "path": "assets/fonts/Vazirmatn-Bold.ttf",
+      "sha1": "c01e41bc392a8b2cd4b9f7ae995c5a284a2920c7"
+    },
+    {
+      "path": "assets/fonts/Vazirmatn-ExtraLight.ttf",
+      "sha1": "0282acfede6df99aaa772244ab1bacc63d530f38"
+    },
+    {
+      "path": "assets/fonts/Vazirmatn-Medium.ttf",
+      "sha1": "5c21c7fe0ae95852891f0d527fbcbee5b51e637e"
+    },
+    {
+      "path": "assets/fonts/Vazirmatn-Thin.ttf",
+      "sha1": "9e4ee793afe3564dfc1f1ce102a117babe1e8605"
+    },
+    {
+      "path": "assets/fonts/yekan.ttf",
+      "sha1": "4c77057a32faad4c3b3b45918e270a860807ccf6"
+    }
+  ]
+}
