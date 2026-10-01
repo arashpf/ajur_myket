@@ -164,6 +164,10 @@ buildscript {
 
         rngesturehandlerVersion = "2.8.0"
 
+        // Force Kotlin 1.8.0 across all modules (including iab-myket-reactnative,
+        // which otherwise pulls kotlin-stdlib:2.0.20 — undeckable by AGP 7.4).
+        kotlinVersion = "1.8.0"
+
         if (System.properties['os.arch'] == "aarch64") {
             // For Apple Silicon (M1/M2) Macs, use NDK 24
             ndkVersion = "24.0.8215888"
@@ -212,7 +216,7 @@ allprojects {
         // Other common open-source packages
         maven { url 'https://www.jitpack.io' }
 
-        
+
     }
 }
 
@@ -231,6 +235,12 @@ subprojects {
             force "com.google.android.gms:play-services-basement:18.1.0"
             force "com.google.android.gms:play-services-tasks:18.0.2"
             force "com.google.android.gms:play-services-location:21.0.1"
+
+            // --- Kotlin stdlib (needed because iab-myket-reactnative defaults to 2.0.20,
+            //     which AGP 7.4's D8 cannot dex) ---
+            force "org.jetbrains.kotlin:kotlin-stdlib:1.8.0"
+            force "org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.0"
+            force "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.0"
         }
     }
 }
