@@ -3,6 +3,7 @@ import { Linking, Alert } from 'react-native'; // Add Alert import
 import { NativeBaseProvider, Box, HStack, Center, Pressable } from 'native-base';
 import Icon from 'react-native-vector-icons/Ionicons';
 import axios from 'axios'; // Add axios import
+import { trackEvent } from '../../lib/analytics/track';  
 
 const FooterContact = (props) => {
   const realstate = props.realstate;
@@ -30,19 +31,37 @@ const FooterContact = (props) => {
   //   Linking.openURL(phoneNumber);
   // };
 
-  const onPressingCall = async () => {
-
-    
-    try {
-      await axios.post("https://api.ajur.app/api/track/worker-call", {
-        worker_id: details.id,
+  const onPressingCall = () => {
+    const phone = realstate?.phone;
+  
+    // 1) Analytics — fire-and-forget, do NOT await.
+    //    Must happen before the dialer opens, so we don't lose it if the
+    //    OS backgrounds the app to show the call screen.
+    if (details?.id) {
+      trackEvent('listing_call', {
+        listing_id: details.id,
+        phone: phone || null,
+        realstate_id: realstate?.id || null,
+        source: 'worker-page',
       });
-    } catch (error) {
-      console.error("Worker call tracking failed:", error);
-      alert("خطا در ثبت تماس");
     }
-    const phoneNumber = `tel:${realstate.phone}`;
-    Linking.openURL(phoneNumber);
+  
+    // 2) Legacy server-side log — fire-and-forget too.
+    //    Previously this was awaited, which delayed the dialer on slow
+    //    networks. We now send it in parallel.
+    axios
+      .post('https://api.ajur.app/api/track/worker-call', {
+        worker_id: details.id,
+      })
+      .catch((error) => {
+        // Legacy log failure is non-fatal — don't block the call.
+        if (__DEV__) console.warn('worker-call log failed:', error?.message);
+      });
+  
+    // 3) Open the dialer immediately.
+    if (phone) {
+      Linking.openURL(`tel:${phone}`);
+    }
   };
 
   // const onPressingCall = async () => {

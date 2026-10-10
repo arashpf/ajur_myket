@@ -381,6 +381,7 @@ const FilterModal = ({
                     styles.singleFieldInput,
                     maxValue && styles.singleFieldInputWithValue,
                   ]}
+                  cursorColor="#b92a31"
                   placeholder={'تا ' + fieldName}
                   keyboardType="numeric"
                   value={displayMax}
@@ -434,6 +435,7 @@ const FilterModal = ({
                     styles.singleFieldInput,
                     minValue && styles.singleFieldInputWithValue,
                   ]}
+                  cursorColor="#b92a31"
                   placeholder={'از ' + fieldName}
                   keyboardType="numeric"
                   value={displayMin}
@@ -604,6 +606,7 @@ const FilterModal = ({
                 <View style={styles.rangeInputGroup}>
                   <TextInput
                     style={styles.rangeInput}
+                    cursorColor="#b92a31"
                     placeholder={"تا " + field.name}
                     value={maxValue}
                     onChangeText={(text) => {
@@ -618,6 +621,7 @@ const FilterModal = ({
                 <View style={styles.rangeInputGroup}>
                   <TextInput
                     style={styles.rangeInput}
+                    cursorColor="#b92a31"
                     placeholder={"از " + field.name}
                     value={minValue}
                     onChangeText={(text) => {
@@ -693,6 +697,7 @@ const FilterModal = ({
         <View style={styles.rangeValuesContainer}>
           <TextInput
             style={styles.rangeInput}
+            cursorColor="#b92a31"
             placeholder="حداقل"
             value={filter.low || ''}
             onChangeText={(text) => onRangeFilterChange(filter.id, 'low', text)}
@@ -702,6 +707,7 @@ const FilterModal = ({
           <Text style={styles.rangeSeparator}>تا</Text>
           <TextInput
             style={styles.rangeInput}
+            cursorColor="#b92a31"
             placeholder="حداکثر"
             value={filter.high || ''}
             onChangeText={(text) => onRangeFilterChange(filter.id, 'high', text)}
@@ -1269,6 +1275,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'iransans',
     backgroundColor: 'white',
+    color: '#222',           // ← NEW
     textAlign: 'center',
   },
   predefineFieldContainer: {
@@ -1413,6 +1420,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'iransans',
     backgroundColor: 'white',
+    color: '#222',           // ← NEW: force dark text
     textAlign: 'center',
   },
   singleFieldInputWithValue: {
@@ -1432,6 +1440,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'iransans',
     backgroundColor: 'white',
+    color: '#222',           // ← NEW
     textAlign: 'center',
   },
   singleFieldUnit: {

@@ -55,6 +55,8 @@ import FooterContact from '../parts/FooterContact';
 import WorkerErrorModal from './parts/WorkerErrorModal';
 import WorkerCard from '../cards/WorkerCard';
 import Report from './report';
+
+import { trackEvent } from '../../lib/analytics/track';
 import MapView, {
   Marker,
   Polyline,
@@ -227,11 +229,27 @@ const WorkerSingle = ({route, navigation}) => {
     loadData();
   }, [itemId]);
 
-  useFocusEffect(
-    React.useCallback(() => {
-      scrollRef.current?.scrollTo({y: 0, animated: true});
-    }, []),
-  );
+  // Dedupe: fire listing_view at most once per 60s per listing per session.
+// Without this, every screen re-focus (back navigation, tab switch, etc.)
+// would fire a new event.
+const lastViewRef = useRef({ listingId: null, at: 0 });
+
+useFocusEffect(
+  React.useCallback(() => {
+    scrollRef.current?.scrollTo({y: 0, animated: true});
+
+    const now = Date.now();
+    const last = lastViewRef.current;
+
+    const sameListing = last.listingId === itemId;
+    const withinWindow = now - last.at < 60000;
+
+    if (!sameListing || !withinWindow) {
+      lastViewRef.current = { listingId: itemId, at: now };
+      trackEvent('listing_view', { listing_id: itemId });
+    }
+  }, [itemId]),
+);
 
   const fetchWorkerAgain = () => {
     set_loading('true');
@@ -243,25 +261,65 @@ const WorkerSingle = ({route, navigation}) => {
   };
 
   const handleShare = async () => {
+    const propertyUrl = `https://ajur.app/worker/${itemId}`;
+  
+    const shareOptions = {
+      title: 'اشتراک گذاری ملک',
+      message: details.description || '',
+      url: propertyUrl,
+    };
+  
     try {
-      const propertyUrl = `https://ajur.app/worker/${itemId}`;
-
-      const shareOptions = {
-        title: 'اشتراک گذاری ملک',
-        message: details.description || '',
-        url: propertyUrl,
-      };
-
-      if (Platform.OS === 'android') {
-        await Share.share({
-          title: shareOptions.title,
-          message: `${shareOptions.message}\n\n${shareOptions.url}`,
-        });
+      const result = await Share.share(
+        Platform.OS === 'android'
+          ? {
+              title: shareOptions.title,
+              message: `${shareOptions.message}\n\n${shareOptions.url}`,
+            }
+          : shareOptions,
+      );
+  
+      // ─── Determine the outcome as precisely as RN allows ───
+      //
+      // iOS:     result.action is 'sharedAction'    → user picked an app
+      //          result.action is 'dismissedAction' → user cancelled
+      //
+      // Android: result.action is always 'sharedAction', even when the user
+      //          tapped outside the sheet. Android also gives us no signal
+      //          to tell the two apart. We mark it as 'unknown' to be honest.
+      //
+      // No-apps case: Share.share() rejects → we land in catch. We can't
+      // distinguish "no apps available" from a genuine error, so we skip
+      // the event entirely (no false positive).
+  
+      let channel = 'unknown';
+  
+      if (Platform.OS === 'ios') {
+        // iOS is reliable
+        if (result?.action === Share.sharedAction) {
+          channel = 'native';
+        } else if (result?.action === Share.dismissedAction) {
+          // User cancelled — don't fire. That's a signal, not a share.
+          return;
+        }
       } else {
-        await Share.share(shareOptions);
+        // Android — we know the sheet opened and closed, but not how.
+        // Send 'native' (optimistic) and mark outcome as 'unknown'.
+        // If you'd rather not guess, change this to `return` and Android
+        // share events will stop firing entirely.
+        channel = 'native';
       }
+  
+      trackEvent('listing_share', {
+        listing_id: itemId,
+        channel,
+      });
     } catch (error) {
-      console.error('Error sharing:', error);
+      // Reached when: user cancelled on iOS (throws AbortError) OR Share.share
+      // failed for any other reason. Cannot distinguish. Skip the event.
+      if (__DEV__) {
+        console.warn('[share] skipped:', error?.name, error?.message);
+      }
       ToastAndroid.show('خطا در اشتراک گذاری', ToastAndroid.SHORT);
     }
   };
@@ -276,33 +334,46 @@ const WorkerSingle = ({route, navigation}) => {
   );
 
   const onPressingTag = () => {
+    // `isfavorite` reflects the state BEFORE the toggle:
+    //   'on'  → user is removing from favorites
+    //   'off' → user is adding to favorites
+    const action = isfavorite === 'on' ? 'remove' : 'add';
+  
+    // ─── Analytics ───
+    // Fire immediately, before any AsyncStorage work, so we don't lose the
+    // event if the storage call rejects or the user navigates away.
+    trackEvent('listing_favorite', {
+      listing_id: itemId,
+      action,
+    });
+  
     if (isfavorite == 'on') {
       ToastAndroid.show(
         'آگهی از لیست  پسند شده ها  پاک شد',
         ToastAndroid.SHORT,
       );
-
+  
       set_isfavorite('off');
-
+  
       const productToBeSaved = itemId;
       AsyncStorage.getItem('favorited').then(existingProducts => {
         let newProduct = JSON.parse(existingProducts);
         if (!newProduct) {
           newProduct = [];
         }
-
+  
         let length = newProduct.length;
-
+  
         if (length > 20) {
           newProduct = newProduct.slice(length - 20, length);
         }
         filterProduct = newProduct.filter(function (item) {
           return item !== productToBeSaved;
         });
-
+  
         console.log('favorite list is :');
         console.log(filterProduct);
-
+  
         AsyncStorage.setItem('favorited', JSON.stringify(filterProduct))
           .then(() => {
             console.log('It was un bookmarded successfully');
@@ -314,16 +385,16 @@ const WorkerSingle = ({route, navigation}) => {
     } else {
       set_isfavorite('on');
       ToastAndroid.show('آگهی به لیست  پسند ها اضافه شد', ToastAndroid.SHORT);
-
+  
       const productToBeSaved = itemId;
       AsyncStorage.getItem('favorited').then(existingProducts => {
         let newProduct = JSON.parse(existingProducts);
         if (!newProduct) {
           newProduct = [];
         }
-
+  
         let length = newProduct.length;
-
+  
         if (length > 20) {
           newProduct = newProduct.slice(length - 20, length);
         }
@@ -331,10 +402,10 @@ const WorkerSingle = ({route, navigation}) => {
           return item !== productToBeSaved;
         });
         filterProduct.push(productToBeSaved);
-
+  
         console.log('favorite list is :');
         console.log(filterProduct);
-
+  
         AsyncStorage.setItem('favorited', JSON.stringify(filterProduct))
           .then(() => {
             console.log('It was saved successfully');

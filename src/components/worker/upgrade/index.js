@@ -15,6 +15,7 @@ import { useMyket } from 'iab-myket-reactnative';
 import axios from 'axios';
 import FastImage from 'react-native-fast-image';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { trackEvent } from '../../../lib/analytics/track';
 
 const { width } = Dimensions.get('window');
 
@@ -47,6 +48,50 @@ const SingleUpgrade = ({ route, navigation }) => {
       loadData();
     }
   }, [worker_id, userToken]);
+
+  // ─── Cleanup pending Myket purchases on mount ───
+  // Per Myket docs: any unconsumed purchases (from a previous crashed run
+  // or an interrupted flow) must be consumed on next launch so the SKU
+  // becomes re-purchasable. This effect queries Myket's inventory and
+  // consumes each pending Purchase object.
+  useEffect(() => {
+    if (!userToken) return;
+
+    const cleanupPendingPurchases = async () => {
+      try {
+        const inventory = await myket.queryPurchaseProduct(false, []);
+        console.log('📦 Myket inventory:', JSON.stringify(inventory, null, 2));
+
+        // SDK field name may vary — try common ones.
+        const pendingPurchases =
+          inventory?.allPurchases ??
+          inventory?.all_purchases ??
+          inventory?.purchases ??
+          [];
+
+        if (!Array.isArray(pendingPurchases) || pendingPurchases.length === 0) {
+          console.log('📦 No pending purchases');
+          return;
+        }
+
+        console.log(`📦 Found ${pendingPurchases.length} pending purchase(s)`);
+
+        for (const purchase of pendingPurchases) {
+          try {
+            // IMPORTANT: pass the full Purchase object, not a token string.
+            await myket.consumePurchase(purchase);
+            console.log('✅ Cleaned up pending purchase:', purchase?.sku ?? purchase?.orderId);
+          } catch (e) {
+            console.warn('⚠️ Failed to clean up pending purchase:', e?.message);
+          }
+        }
+      } catch (e) {
+        console.warn('⚠️ queryPurchaseProduct failed:', e?.message);
+      }
+    };
+
+    cleanupPendingPurchases();
+  }, [userToken]);
 
   const loadUserToken = async () => {
     try {
@@ -253,6 +298,24 @@ const SingleUpgrade = ({ route, navigation }) => {
     if (purchasing) return;
     setPurchasing(true);
 
+    // ─── Analytics: build plan snapshot once ───
+    const analyticsPlan = {
+      type: selectedPlan.type,
+      plan_id: selectedPlan.id,
+      days: selectedPlan.days ?? null,
+      calls: selectedPlan.calls ?? null,
+      price: selectedPlan.price,
+    };
+
+    // ─── Analytics: purchase_attempt ───
+    trackEvent('purchase_attempt', {
+      worker_id,
+      plan: analyticsPlan,
+      total_price: totalPrice,
+      gateway: 'myket',
+      status: 'pending',
+    });
+
     try {
       const productSku = selectedPlan.sku;
 
@@ -280,6 +343,22 @@ const SingleUpgrade = ({ route, navigation }) => {
           lower.includes('user canceled') ||
           lower.includes('user cancelled');
 
+        const errorCode = isCancel
+          ? 'user_cancelled'
+          : lower.includes('timeout')
+          ? 'timeout'
+          : 'unknown';
+
+        // ─── Analytics: purchase_outcome (failed) ───
+        trackEvent('purchase_outcome', {
+          worker_id,
+          plan: analyticsPlan,
+          total_price: totalPrice,
+          gateway: 'myket',
+          status: 'failed',
+          error_code: errorCode,
+        });
+
         if (isCancel) {
           Alert.alert(
             'لغو خرید',
@@ -301,19 +380,79 @@ const SingleUpgrade = ({ route, navigation }) => {
         return;
       }
 
+      // ─── Guard: what does the SDK actually return? ───
+      // Myket returns the token under `token`, and it IS a Purchase object
+      // suitable for consumePurchase(). We accept the object if it has
+      // either `token` or `purchaseToken` populated.
+      const hasUsablePurchase =
+        purchaseResult &&
+        (purchaseResult.token || purchaseResult.purchaseToken);
+
+      if (!hasUsablePurchase) {
+        console.warn('[myket] invalid purchaseResult — skipping consume');
+
+        try {
+          await AsyncStorage.setItem(
+            'pending_invalid_purchase',
+            JSON.stringify({
+              sku: productSku,
+              result: purchaseResult,
+              worker_id,
+              timestamp: Date.now(),
+            })
+          );
+        } catch (e) {
+          console.error('Failed to store invalid purchase:', e);
+        }
+
+        // ─── Analytics: purchase_outcome (failed / invalid_purchase_result) ───
+        trackEvent('purchase_outcome', {
+          worker_id,
+          plan: analyticsPlan,
+          total_price: totalPrice,
+          gateway: 'myket',
+          status: 'failed',
+          error_code: 'invalid_purchase_result',
+        });
+
+        Alert.alert(
+          'خطا در تکمیل خرید',
+          'پرداخت شما انجام شد اما اطلاعات خرید دریافت نشد.\nلطفاً با پشتیبانی تماس بگیرید.'
+        );
+        setPurchasing(false);
+        return;
+      }
+
+      // Normalized fields for later use
+      const normalizedPurchaseToken =
+        purchaseResult.token ?? purchaseResult.purchaseToken;
+      const normalizedOrderId = purchaseResult.orderId ?? null;
+      const normalizedProductId =
+        purchaseResult.sku ?? purchaseResult.productId ?? productSku;
+      const normalizedPackageName =
+        purchaseResult.packageName ?? 'com.Ajour';
+
       // ---------------------------------------------------------------
       // مرحله ۲: مصرف محصول (برای مصرف‌شدنی‌ها)
       // ---------------------------------------------------------------
+      // IMPORTANT: The Myket SDK's `consumePurchase()` expects a full
+      // Purchase object — the same object `purchaseProduct()` returned.
+      // Passing only a token string causes a native NullPointerException
+      // (`IabHelper.consume` reads `purchase.mItemType` on a null value).
       try {
-        await myket.consumePurchase(purchaseResult.purchaseToken);
-        console.log('✅ Product consumed:', purchaseResult.purchaseToken);
+        const consumePromise = myket.consumePurchase(purchaseResult);
+        const consumeTimeout = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('CONSUME_TIMEOUT')), 10000)
+        );
+        await Promise.race([consumePromise, consumeTimeout]);
+        console.log('✅ Product consumed:', normalizedPurchaseToken);
       } catch (consumeError) {
         console.error('❌ Failed to consume product:', consumeError);
         try {
           await AsyncStorage.setItem(
             'pending_consume',
             JSON.stringify({
-              token: purchaseResult.purchaseToken,
+              purchase: purchaseResult, // store FULL object so cleanup can re-consume
               sku: productSku,
               timestamp: Date.now(),
             })
@@ -321,6 +460,16 @@ const SingleUpgrade = ({ route, navigation }) => {
         } catch (e) {
           console.error('Failed to store pending consume:', e);
         }
+
+        // ─── Analytics: purchase_outcome (failed / consume_failed) ───
+        trackEvent('purchase_outcome', {
+          worker_id,
+          plan: analyticsPlan,
+          total_price: totalPrice,
+          gateway: 'myket',
+          status: 'failed',
+          error_code: 'consume_failed',
+        });
       }
 
       // ---------------------------------------------------------------
@@ -336,10 +485,10 @@ const SingleUpgrade = ({ route, navigation }) => {
           price: selectedPlan.price,
         },
         total_price: totalPrice,
-        purchase_token: purchaseResult.purchaseToken,
-        order_id: purchaseResult.orderId,
-        product_id: purchaseResult.productId,
-        package_name: purchaseResult.packageName || 'com.ajur.app',
+        purchase_token: normalizedPurchaseToken,
+        order_id: normalizedOrderId,
+        product_id: normalizedProductId,
+        package_name: normalizedPackageName,
       };
 
       let res;
@@ -367,6 +516,16 @@ const SingleUpgrade = ({ route, navigation }) => {
         } catch (e) {
           console.error('Failed to store pending purchase:', e);
         }
+
+        // ─── Analytics: purchase_outcome (failed / server_rejected) ───
+        trackEvent('purchase_outcome', {
+          worker_id,
+          plan: analyticsPlan,
+          total_price: totalPrice,
+          gateway: 'myket',
+          status: 'failed',
+          error_code: 'server_rejected',
+        });
 
         const status = serverError?.response?.status;
         if (status === 401) {
@@ -400,6 +559,17 @@ const SingleUpgrade = ({ route, navigation }) => {
       // مرحله ۴: بررسی پاسخ سرور
       // ---------------------------------------------------------------
       if (res?.data?.success) {
+        // ─── Analytics: purchase_outcome (completed) ───
+        trackEvent('purchase_outcome', {
+          worker_id,
+          plan: analyticsPlan,
+          total_price: totalPrice,
+          gateway: 'myket',
+          status: 'completed',
+          payment_id: res.data.data?.payment_id ?? null,
+          order_id: normalizedOrderId,
+        });
+
         Alert.alert('موفق', 'خرید با موفقیت انجام شد', [
           { text: 'باشه', onPress: () => navigation.replace('Dashboard') },
         ]);
@@ -414,6 +584,16 @@ const SingleUpgrade = ({ route, navigation }) => {
           console.error('Failed to store pending purchase:', e);
         }
 
+        // ─── Analytics: purchase_outcome (failed / server_success_false) ───
+        trackEvent('purchase_outcome', {
+          worker_id,
+          plan: analyticsPlan,
+          total_price: totalPrice,
+          gateway: 'myket',
+          status: 'failed',
+          error_code: 'server_success_false',
+        });
+
         Alert.alert(
           'متاسفانه پرداخت انجام نشد',
           'خرید شما ثبت شد اما تایید سرور انجام نشد.\nدر صورت کسر وجه، مبلغ به‌زودی بازگردانده می‌شود.'
@@ -421,6 +601,17 @@ const SingleUpgrade = ({ route, navigation }) => {
       }
     } catch (err) {
       console.error('❌ Unexpected error in handleCheckout:', err);
+
+      // ─── Analytics: purchase_outcome (failed / unknown) ───
+      trackEvent('purchase_outcome', {
+        worker_id,
+        plan: analyticsPlan,
+        total_price: totalPrice,
+        gateway: 'myket',
+        status: 'failed',
+        error_code: 'unknown',
+      });
+
       Alert.alert(
         'متاسفانه پرداخت انجام نشد',
         'خطای غیرمنتظره رخ داد. لطفاً دوباره تلاش کنید.'

@@ -31,6 +31,7 @@ import {verticalStackLayout} from 'react-native-reanimated-carousel/lib/typescri
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {CityContext} from '../../CityContext';
+import { trackEvent } from '../../lib/analytics/track';
 
 const {width: SCREEN_WIDTH} = Dimensions.get('window');
 const ITEM_WIDTH = SCREEN_WIDTH * 1;
@@ -374,8 +375,10 @@ const SearchBars = ({realstates, onCitySelect, onSearchResultSelect}) => {
           timeout: SEARCH_TIMEOUT,
         },
       );
-      setAgents(response.data.agents || []);
-      setSearchStatus(`${response.data.agents.length} مشاور یافت شد`);
+      const agentsList = response.data.agents || [];
+      setAgents(agentsList);
+      setSearchStatus(`${agentsList.length} مشاور یافت شد`);
+      return agentsList;
     } catch (error) {
       console.error('Agent search failed:', error);
       setSearchStatus('خطا در جستجوی مشاورین');
@@ -400,213 +403,265 @@ const SearchBars = ({realstates, onCitySelect, onSearchResultSelect}) => {
     }
   };
 
-  // ✅ UPDATED: Main search handler - supports both old and new API response
-  const handleSearch = async (isManualSearch = true) => {
-    if (!currentCity || isLoading) {
-      Alert.alert('انتخاب شهر', 'لطفاً ابتدا یک شهر را انتخاب کنید', [
-        {
-          text: 'باشه',
-          style: 'cancel',
-        },
-      ]);
-      return;
-    }
-    if (!searchQuery.trim()) {
-      return;
-    }
 
-    console.log(`Searching for "${searchQuery}" in ${activeTab} tab`);
-
+    // ─── Analytics: fire search event ───
+  // Called from handleSearch after the API resolves, so we have real counts.
+  // Never throws, never blocks.
+  const fireSearchEvent = ({ query, tab, trigger, resultsCount, totalProperties }) => {
     try {
-      setLoading(true);
-      setSearchStatus('در حال جستجو...');
-
-      if (isManualSearch) {
-        await saveToHistory(searchQuery);
+      trackEvent('search', {
+        query: query || '',
+        city_slug: currentCity?.slug ?? null,
+        city_id: currentCity?.id ?? null,
+        tab: tab,
+        trigger: trigger,
+        results_count: resultsCount ?? 0,
+        total_properties: totalProperties ?? null,
+      });
+    } catch (err) {
+      if (__DEV__) {
+        console.warn('[analytics] search failed:', err?.message);
       }
-
-      progressIntervalRef.current = setInterval(() => {
-        setSearchStatus(prev =>
-          prev.includes('...') ? 'در حال جستجو' : prev + '.',
-        );
-      }, 500);
-
-      loadingTimeoutRef.current = setTimeout(() => {
-        Alert.alert('در حال جستجو', 'دریافت نتایج کمی طول می‌کشد...', [
-          {text: 'متوجه شدم', style: 'cancel'},
-        ]);
-      }, 5000);
-
-      switch (activeTab) {
-        case 'buySell': {
-          try {
-            const response = await axios.post(
-              'https://api.ajur.app/api/search-intent',
-              {
-                query: searchQuery,
-                cityid: currentCity.id,
-              },
-              {
-                timeout: 10000,
-              },
-            );
-
-            console.log('Search result:', JSON.stringify(response.data, null, 2));
-            clearTimeout(loadingTimeoutRef.current);
-            clearInterval(progressIntervalRef.current);
-
-            if (!response.data) {
-              throw new Error('پاسخ نامعتبر از سرور دریافت شد');
-            }
-
-            const data = response.data;
-
-            // ✅ Check if we have the new structure (with categories and neighborhoods)
-            const hasNewStructure = data.categories !== undefined || data.neighborhoods !== undefined;
-            
-            let categoriesWithNeighborhoods = [];
-            let neighborhoodResults = [];
-            
-            if (hasNewStructure) {
-              // ✅ NEW STRUCTURE: { categories: [], neighborhoods: [] }
-              categoriesWithNeighborhoods = data.categories || [];
-              neighborhoodResults = data.neighborhoods || [];
-              
-              // Store neighborhood results for display
-              set_search_neighborhoods(neighborhoodResults.map(n => n.name));
-            } else {
-              // ✅ OLD STRUCTURE: Direct array of categories
-              categoriesWithNeighborhoods = Array.isArray(data) ? data : [];
-              
-              // Extract all unique neighborhood names from categories
-              const allNeighborhoods =
-                categoriesWithNeighborhoods.length > 0
-                  ? [
-                      ...new Set(
-                        categoriesWithNeighborhoods.flatMap(c =>
-                          c.neighborhoods?.map(n => n.name) || []
-                        ),
-                      ),
-                    ]
-                  : [];
-              set_search_neighborhoods(allNeighborhoods);
-            }
-
-            // Process categories
-            let displayItems = [];
-            if (categoriesWithNeighborhoods.length > 0) {
-              displayItems = categoriesWithNeighborhoods.map((categoryData, index) => {
-                const categoryName = categoryData.category_name || categoryData.name;
-                const category_array = categoryData.category_array || categoryData.category;
-                const neighborhoods = categoryData.neighborhoods || [];
-
-                return {
-                  id: `category-${index}-${Date.now()}`,
-                  category: categoryName,
-                  category_array: category_array,
-                  neighborhoods: neighborhoods,
-                  propertyCounts: neighborhoods.reduce((acc, curr) => {
-                    acc[curr.name] = curr.property_count || 0;
-                    return acc;
-                  }, {}),
-                  chips: neighborhoods
-                    .filter(n => (n.property_count || 0) > 0)
-                    .slice(0, 5)
-                    .map(n => ({
-                      label: `${n.name} (${n.property_count})`,
-                      value: n.name,
-                    })),
-                  isEmpty: neighborhoods.every(n => (n.property_count || 0) === 0),
-                  isPrimary: index === 0,
-                };
-              });
-            }
-
-            setProperties(displayItems);
-
-            // ✅ Update search status
-            let statusText = '';
-            if (displayItems.length > 0 && neighborhoodResults.length > 0) {
-              statusText = `${displayItems.length} دسته‌بندی و ${neighborhoodResults.length} محله یافت شد`;
-            } else if (displayItems.length > 0) {
-              statusText = `${displayItems.length} دسته‌بندی یافت شد`;
-            } else if (neighborhoodResults.length > 0) {
-              statusText = `${neighborhoodResults.length} محله یافت شد`;
-            } else {
-              statusText = `جستجوی "${searchQuery}" در ${currentCity.title} نتیجه‌ای نداشت`;
-            }
-            setSearchStatus(statusText);
-
-            // ✅ Show alert if no results
-            if (displayItems.length === 0 && neighborhoodResults.length === 0) {
-              if (isManualSearch) {
-                Alert.alert(
-                  'نتیجه‌ای یافت نشد',
-                  `جستجوی "${searchQuery}" در ${currentCity.title} نتیجه‌ای نداشت`,
-                );
-              }
-            }
-
-          } catch (error) {
-            console.error('Search error:', error);
-            Alert.alert('خطا', 'خطایی در دریافت اطلاعات رخ داده است');
-          }
-          break;
-        }
-
-        case 'agents':
-          await getAgentsCall(searchQuery);
-          break;
-
-        case 'jobs':
-          Alert.alert('جستجو', 'جستجوی مشاغل فعال شد');
-          setSearchStatus('جستجوی مشاغل انجام شد');
-          break;
-
-        default:
-          Alert.alert('خطا', 'لطفاً یک تب معتبر را انتخاب کنید');
-          return;
-      }
-    } catch (error) {
-      console.error('Search error:', error);
-      clearTimeout(loadingTimeoutRef.current);
-      clearInterval(progressIntervalRef.current);
-
-      const errorMessage =
-        error.response?.data?.message ||
-        error.message ||
-        'خطای نامشخص در هنگام جستجو';
-
-      if (error.code === 'ECONNABORTED') {
-        Alert.alert(
-          'زمان جستجو به پایان رسید',
-          [
-            'مشکلات احتمالی:',
-            '1. سرور پاسخگو نیست',
-            '2. اینترنت شما ضعیف است',
-            '3. جستجوی شما پیچیده است',
-          ].join('\n'),
-          [
-            {
-              text: 'تلاش مجدد',
-              onPress: () =>
-                setTimeout(() => handleSearch(isManualSearch), 1000),
-            },
-            {
-              text: 'ساده‌تر جستجو کنید',
-              onPress: () => inputRef.current?.focus(),
-            },
-          ],
-        );
-        setSearchStatus('زمان جستجو پایان یافت');
-      } else {
-        Alert.alert('خطا', errorMessage);
-        setSearchStatus('خطا در جستجو');
-      }
-    } finally {
-      setLoading(false);
     }
   };
+
+  // ✅ UPDATED: Main search handler - supports both old and new API response
+    // ✅ UPDATED: Main search handler - supports both old and new API response
+    const handleSearch = async (isManualSearch = true) => {
+      if (!currentCity || isLoading) {
+        Alert.alert('انتخاب شهر', 'لطفاً ابتدا یک شهر را انتخاب کنید', [
+          {
+            text: 'باشه',
+            style: 'cancel',
+          },
+        ]);
+        return;
+      }
+      if (!searchQuery.trim()) {
+        return;
+      }
+  
+      console.log(`Searching for "${searchQuery}" in ${activeTab} tab`);
+  
+      try {
+        setLoading(true);
+        setSearchStatus('در حال جستجو...');
+  
+        if (isManualSearch) {
+          await saveToHistory(searchQuery);
+        }
+  
+        progressIntervalRef.current = setInterval(() => {
+          setSearchStatus(prev =>
+            prev.includes('...') ? 'در حال جستجو' : prev + '.',
+          );
+        }, 500);
+  
+        loadingTimeoutRef.current = setTimeout(() => {
+          Alert.alert('در حال جستجو', 'دریافت نتایج کمی طول می‌کشد...', [
+            {text: 'متوجه شدم', style: 'cancel'},
+          ]);
+        }, 5000);
+  
+        switch (activeTab) {
+          case 'buySell': {
+            try {
+              const response = await axios.post(
+                'https://api.ajur.app/api/search-intent',
+                {
+                  query: searchQuery,
+                  cityid: currentCity.id,
+                },
+                {
+                  timeout: 10000,
+                },
+              );
+  
+              console.log('Search result:', JSON.stringify(response.data, null, 2));
+              clearTimeout(loadingTimeoutRef.current);
+              clearInterval(progressIntervalRef.current);
+  
+              if (!response.data) {
+                throw new Error('پاسخ نامعتبر از سرور دریافت شد');
+              }
+  
+              const data = response.data;
+  
+              // ✅ Check if we have the new structure (with categories and neighborhoods)
+              const hasNewStructure = data.categories !== undefined || data.neighborhoods !== undefined;
+  
+              let categoriesWithNeighborhoods = [];
+              let neighborhoodResults = [];
+  
+              if (hasNewStructure) {
+                // ✅ NEW STRUCTURE: { categories: [], neighborhoods: [] }
+                categoriesWithNeighborhoods = data.categories || [];
+                neighborhoodResults = data.neighborhoods || [];
+  
+                // Store neighborhood results for display
+                set_search_neighborhoods(neighborhoodResults.map(n => n.name));
+              } else {
+                // ✅ OLD STRUCTURE: Direct array of categories
+                categoriesWithNeighborhoods = Array.isArray(data) ? data : [];
+  
+                // Extract all unique neighborhood names from categories
+                const allNeighborhoods =
+                  categoriesWithNeighborhoods.length > 0
+                    ? [
+                        ...new Set(
+                          categoriesWithNeighborhoods.flatMap(c =>
+                            c.neighborhoods?.map(n => n.name) || []
+                          ),
+                        ),
+                      ]
+                    : [];
+                set_search_neighborhoods(allNeighborhoods);
+              }
+  
+              // Process categories
+              let displayItems = [];
+              if (categoriesWithNeighborhoods.length > 0) {
+                displayItems = categoriesWithNeighborhoods.map((categoryData, index) => {
+                  const categoryName = categoryData.category_name || categoryData.name;
+                  const category_array = categoryData.category_array || categoryData.category;
+                  const neighborhoods = categoryData.neighborhoods || [];
+  
+                  return {
+                    id: `category-${index}-${Date.now()}`,
+                    category: categoryName,
+                    category_array: category_array,
+                    neighborhoods: neighborhoods,
+                    propertyCounts: neighborhoods.reduce((acc, curr) => {
+                      acc[curr.name] = curr.property_count || 0;
+                      return acc;
+                    }, {}),
+                    chips: neighborhoods
+                      .filter(n => (n.property_count || 0) > 0)
+                      .slice(0, 5)
+                      .map(n => ({
+                        label: `${n.name} (${n.property_count})`,
+                        value: n.name,
+                      })),
+                    isEmpty: neighborhoods.every(n => (n.property_count || 0) === 0),
+                    isPrimary: index === 0,
+                  };
+                });
+              }
+  
+              setProperties(displayItems);
+  
+              // ─── Analytics: fire search event ───
+              // Compute the aggregate property count across all matched
+              // categories/neighborhoods. This is the closest single-number
+              // equivalent to web's `results_count`.
+              const totalPropertyCount = displayItems.reduce((sum, item) => {
+                const counts = item.propertyCounts || {};
+                return sum + Object.values(counts).reduce((s, c) => s + (c || 0), 0);
+              }, 0);
+  
+              fireSearchEvent({
+                query: searchQuery,
+                tab: 'buySell',
+                trigger: isManualSearch ? 'manual' : 'typing',
+                resultsCount: totalPropertyCount,
+                totalProperties: null, // RN doesn't have a city-wide total
+              });
+  
+              // ✅ Update search status
+              let statusText = '';
+              if (displayItems.length > 0 && neighborhoodResults.length > 0) {
+                statusText = `${displayItems.length} دسته‌بندی و ${neighborhoodResults.length} محله یافت شد`;
+              } else if (displayItems.length > 0) {
+                statusText = `${displayItems.length} دسته‌بندی یافت شد`;
+              } else if (neighborhoodResults.length > 0) {
+                statusText = `${neighborhoodResults.length} محله یافت شد`;
+              } else {
+                statusText = `جستجوی "${searchQuery}" در ${currentCity.title} نتیجه‌ای نداشت`;
+              }
+              setSearchStatus(statusText);
+  
+              // ✅ Show alert if no results
+              if (displayItems.length === 0 && neighborhoodResults.length === 0) {
+                if (isManualSearch) {
+                  Alert.alert(
+                    'نتیجه‌ای یافت نشد',
+                    `جستجوی "${searchQuery}" در ${currentCity.title} نتیجه‌ای نداشت`,
+                  );
+                }
+              }
+  
+            } catch (error) {
+              console.error('Search error:', error);
+              Alert.alert('خطا', 'خطایی در دریافت اطلاعات رخ داده است');
+            }
+            break;
+          }
+  
+          case 'agents': {
+            const agentsList = await getAgentsCall(searchQuery);
+  
+            // ─── Analytics: fire search event for agents tab ───
+            // `results_count` here is the number of agents matched.
+            // `total_properties` doesn't apply — send null.
+            fireSearchEvent({
+              query: searchQuery,
+              tab: 'agents',
+              trigger: isManualSearch ? 'manual' : 'typing',
+              resultsCount: (agentsList || []).length,
+              totalProperties: null,
+            });
+            break;
+          }
+  
+          case 'jobs':
+            Alert.alert('جستجو', 'جستجوی مشاغل فعال شد');
+            setSearchStatus('جستجوی مشاغل انجام شد');
+            break;
+  
+          default:
+            Alert.alert('خطا', 'لطفاً یک تب معتبر را انتخاب کنید');
+            return;
+        }
+      } catch (error) {
+        console.error('Search error:', error);
+        clearTimeout(loadingTimeoutRef.current);
+        clearInterval(progressIntervalRef.current);
+  
+        const errorMessage =
+          error.response?.data?.message ||
+          error.message ||
+          'خطای نامشخص در هنگام جستجو';
+  
+        if (error.code === 'ECONNABORTED') {
+          Alert.alert(
+            'زمان جستجو به پایان رسید',
+            [
+              'مشکلات احتمالی:',
+              '1. سرور پاسخگو نیست',
+              '2. اینترنت شما ضعیف است',
+              '3. جستجوی شما پیچیده است',
+            ].join('\n'),
+            [
+              {
+                text: 'تلاش مجدد',
+                onPress: () =>
+                  setTimeout(() => handleSearch(isManualSearch), 1000),
+              },
+              {
+                text: 'ساده‌تر جستجو کنید',
+                onPress: () => inputRef.current?.focus(),
+              },
+            ],
+          );
+          setSearchStatus('زمان جستجو پایان یافت');
+        } else {
+          Alert.alert('خطا', errorMessage);
+          setSearchStatus('خطا در جستجو');
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
 
   // ✅ NEW: Render neighborhood results section
   const renderNeighborhoodResults = () => {

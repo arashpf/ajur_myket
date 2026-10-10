@@ -1,7 +1,7 @@
 {
   "name": "Ajur",
   "displayName": "Ajur",
-  "version": "120101",
+  "version": "120102",
   "plugins": [
     "react-native-compressor",
     "react-native-imglysdk"

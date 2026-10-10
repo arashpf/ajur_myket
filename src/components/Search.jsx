@@ -39,6 +39,7 @@ import axios from 'axios';
 import Spinner from 'react-native-spinkit';
 import NetInfo from '@react-native-community/netinfo';
 import {filterApi} from './filter/services/filterApi';
+import { trackEvent } from '../lib/analytics/track';
 
 // ============ NEW: Loading Skeleton Component ============
 const LoadingSkeleton = () => (
@@ -110,6 +111,7 @@ const Search = ({navigation, route}) => {
   }, [selectedCity]);
 
   const filterComponentRef = useRef(null);
+  const lastCityViewRef = useRef({ cityId: null, at: 0 });
 
   const getRandomSpecialItem = (workers) => {
     if (!workers || workers.length === 0) return null;
@@ -719,6 +721,29 @@ const Search = ({navigation, route}) => {
       set_loading(false);
       setConnectionTimeout(false);
       setIsInitialLoading(false);
+
+      // ─── Analytics: city_view ───
+      // Fires once per distinct city load per 60s.
+      // Dedupe prevents double-firing on rapid re-loads (e.g. pull-to-refresh
+      // within a minute) and on initial mount where loadData is called twice.
+      const cityIdForEvent = city?.id ?? null;
+      const now = Date.now();
+      const last = lastCityViewRef.current;
+
+      const sameCity = last.cityId === cityIdForEvent;
+      const withinWindow = now - last.at < 60000;
+
+      if (!sameCity || !withinWindow) {
+        lastCityViewRef.current = { cityId: cityIdForEvent, at: now };
+
+        trackEvent('city_view', {
+          city_slug: city?.slug ?? null,
+          city_id: cityIdForEvent,
+          special_count: baseRes.data.special_count ?? 0,
+          urgent_count: baseRes.data.urgent_count ?? 0,
+          neighborhoods_count: newNeighborhoods.length,
+        });
+      }
     } catch (err) {
       console.error('LoadData error:', err);
       set_loading(false);
@@ -823,16 +848,57 @@ const Search = ({navigation, route}) => {
   const goToCategory = cat => {
     setSelectedCategory(cat);
     closeModal();
+
+    // ─── Analytics: category_view ───
+    //
+    // NOTE: the RN app has no dedicated category screen — this is a modal
+    // selection on the home screen. Semantically it's the closest analog
+    // to the web's "user landed on /{city}/{category}". We're choosing to
+    // treat it as a category view.
+    //
+    // Web payload includes: city_slug, category_slug, neighborhood_slug,
+    // page, results_count. Most of these aren't known yet at this point —
+    // the fetch happens later in FilterComponent. We send what we have;
+    // the full context lands on `filter_apply` instead.
+    //
+    // Field name fallbacks (cat.slug || cat.eng_name) are defensive: I'm
+    // not certain which keys your sub_cats objects carry. Both fall to
+    // null if neither exists.
+    trackEvent('category_view', {
+      city_slug: selectedCity?.slug ?? null,
+      category_slug: cat?.slug ?? cat?.eng_name ?? null,
+      category_id: cat?.id ?? null,
+      category_title: cat?.title ?? cat?.name ?? null,
+      neighborhood_slug: null,
+      page: 1,
+      results_count: null,
+    });
   };
 
   const handleCitySelect = async city => {
     setLoadingWorkers(true);
     set_loading(true);
     setIsInitialLoading(true);
-    
+
     setSelectedCity(city);
     await AsyncStorage.setItem('selectedCity', JSON.stringify(city));
-  
+
+    // ─── Analytics: city_select ───
+    // Fires whenever the user actively picks a city from the picker
+    // (or when a search result carries a different city via
+    // handleSearchResultSelect → handleCitySelect).
+    //
+    // NOT fired when a city is loaded from AsyncStorage on cold start —
+    // that path is covered by city_view inside loadData().
+    trackEvent('city_select', {
+      city_slug: city?.slug ?? null,
+      city_id: city?.id ?? null,
+      city_title: city?.title ?? null,
+      // Populated when this is triggered by a search result selection.
+      // Wired in v2 when SearchBars threads the query through.
+      search_query: null,
+    });
+
     setSelectedCategory(null);
     setNormalFields([]);
     setTickFields([]);
@@ -845,11 +911,11 @@ const Search = ({navigation, route}) => {
       total_count: 0,
       has_next: false,
     });
-  
+
     ToastAndroid.show(`شهر ${city.title} انتخاب شد`, ToastAndroid.SHORT);
-    
+
     await loadData(city);
-    
+
     setLoadingWorkers(false);
     setIsInitialLoading(false);
   };

@@ -829,7 +829,7 @@ const ControlPanel = ({navigation}) => {
               rounded="md"
               flexDirection="row"
               justifyContent="flex-end">
-              <Text style={styles.cpanelText}>version 12.1.0</Text>
+              <Text style={styles.cpanelText}>version 12.1.2 myket</Text>
               <Icon style={styles.cpanelIcons} name="ios-cafe-outline" />
             </Box>
           </TouchableOpacity>
