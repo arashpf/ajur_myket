@@ -704,7 +704,8 @@ const ControlPanel = ({navigation}) => {
 
   const handleDownloadPress = () => {
 
-    var url = 'https://ajur.app/download';
+    // var url = 'https://ajur.app/download';
+    var url = 'https://myket.ir/app/com.Ajour';
     Linking.openURL(url);
 };
 
